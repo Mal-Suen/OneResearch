@@ -45,9 +45,10 @@ class SearchResult:
 
 
 def extract_terms(text: str) -> tuple[list[str], list[str]]:
-    """抽取检索词：英文词＋中文词组（用于查询扩展与段落打分）。"""
+    """抽取检索词：英文词＋数字（年份/版本号）＋中文词组（用于查询扩展与段落打分）。"""
     en = [w for w in re.findall(r"[A-Za-z][A-Za-z0-9_.+\-]{1,40}", text)
           if w.lower() not in STOPWORDS_EN]
+    en += re.findall(r"\d+(?:\.\d+)*", text)
     zh: list[str] = []
     for run in re.findall(r"[\u4e00-\u9fff]+", text):
         if run in STOPWORDS_ZH:
@@ -69,7 +70,9 @@ def build_queries(question: str, depth: str, focus: str = "") -> list[str]:
     if depth != "quick" and core and core != q:
         queries.append(core)
     if depth == "deep":
-        queries.append(f"{core or q} {datetime.date.today().year}")
+        year = str(datetime.date.today().year)
+        if year not in q:
+            queries.append(f"{core or q} {year}")
     f = " ".join((focus or "").split())
     if f:
         queries.append(f"{core or q} {f}")

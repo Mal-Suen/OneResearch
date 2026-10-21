@@ -16,8 +16,20 @@ from oneresearch.search import (SearchResult, build_queries, extract_terms,
 def test_extract_terms_mixed():
     en, zh = extract_terms("pyJianYingDraft 最新版本和剪映 11 兼容性怎么样")
     assert "pyJianYingDraft" in en
+    assert "11" in en
     assert any("剪映" in z for z in zh)
     assert all(z != "怎么样" for z in zh)
+
+
+def test_extract_terms_numbers():
+    q = "2026 年个人博客静态站点生成器选型：Astro、Hugo、Next.js 的现状与对比"
+    en, zh = extract_terms(q)
+    assert "2026" in en
+    assert "Astro" in en and "Hugo" in en
+    queries = build_queries(q, "standard")
+    assert any("2026" in x for x in queries)
+    deep = build_queries(q, "deep")
+    assert all(x.count("2026") == 1 for x in deep)
 
 
 def test_build_queries_depths():
