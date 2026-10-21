@@ -1,0 +1,28 @@
+{
+  "proxy": "http://127.0.0.1:7890",
+  "search": {
+    "engines": ["duckduckgo", "baidu"],
+    "max_results_per_engine": 8,
+    "timeout": 15
+  },
+  "fetch": {
+    "max_concurrent": 6,
+    "per_page_timeout": 12,
+    "max_bytes_per_page": 2000000,
+    "deadline_seconds": 55
+  },
+  "output": {
+    "max_report_chars": 14000,
+    "per_source_chars": 1800,
+    "max_sources": 8
+  },
+  "llm": {
+    "base_url": "",
+    "api_key": "",
+    "model": ""
+  },
+  "doubao": {
+    "api_key": "",
+    "version": "global"
+  }
+}
