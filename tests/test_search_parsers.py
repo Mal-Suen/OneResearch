@@ -5,7 +5,8 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from oneresearch.search import parse_baidu_html, parse_ddg_html
+from oneresearch.search import (parse_baidu_html, parse_ddg_html,
+                                parse_ddg_lite_html)
 
 DDG_HTML = """
 <html><body>
@@ -61,3 +62,23 @@ def test_parse_baidu():
     assert "0.3.1" in res[0].snippet
     assert res[1].url == "http://www.baidu.com/link?url=def456"
     assert "官方页面" in res[1].snippet
+
+
+DDG_LITE_HTML = """
+<html><body><table>
+<tr><td>1.</td><td><a class="result-link"
+  href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fdocs.python.org%2F3%2Flibrary%2Fasyncio.html">asyncio documentation</a></td></tr>
+<tr><td class="result-snippet">asyncio is a library to write concurrent code.</td></tr>
+<tr><td>2.</td><td><a class="result-link" href="https://example.com/direct">Direct Link</a></td></tr>
+</table></body></html>
+"""
+
+
+def test_parse_ddg_lite():
+    res = parse_ddg_lite_html(DDG_LITE_HTML)
+    assert len(res) == 2
+    assert res[0].engine == "duckduckgo"
+    assert res[0].url == "https://docs.python.org/3/library/asyncio.html"
+    assert "concurrent" in res[0].snippet
+    assert res[1].url == "https://example.com/direct"
+    assert res[1].snippet == ""

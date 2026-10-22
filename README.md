@@ -62,13 +62,14 @@ D:\ProgramData\anaconda3\python.exe -m pip install -i https://mirrors.aliyun.com
 - MCP stdio：initialize 767ms，tools/list 暴露 research＋fetch_digest，research 实调出报告
 - `qwen mcp list`：oneresearch Connected
 - 2026-10-22 二次迭代：LLM 通道零配置自动发现（复用 Qwen Code 当前模型）实网验证；缺口驱动二轮／版本保鲜查询／2 小时搜索缓存／旧来源时效标注落地
+- 2026-10-22 效果实测（4 组全通）：mcp/FastMCP 合成报告与已知事实全部吻合；pyCapCut 报告命中全部基准且 deep 缺口二轮实际触发；本地模式缓存命中 5s→2s。实测限流规律：DDG html 202 限流→lite 端点兜底；百度连发触发反爬→查询加 0.8s 间隔；双引擎轮流扛住
 
 ## 设计取舍
 
 - **搜索引擎**：Bing 实测弃用——cn.bing.com 把 /search 重定向到 www.bing.com 首页，www.bing.com 对无浏览器指纹的自动化请求返回与查询无关的缓存结果；搜狗、360 直连进反爬验证页；百度需先访问首页拿 cookie 再搜索，实测稳定
 - **内部 LLM 默认开启**：自动复用 Qwen Code 当前模型配置（零新 key），报告升级为带 [S#] 引用的合成结论，材料摘录仍附后供核对；设 `llm.enabled=false` 回到纯本地「材料组织」模式——主模型一次读完材料自己下结论
 - **deep 深度约 80 秒**：若客户端工具超时先于完成，调大 MCP_TOOL_TIMEOUT
-- **DDG 依赖代理在线**：代理不在线时自动降级为仅百度，报告的引擎状态行会注明
+- **DDG 依赖代理在线**：代理不在线时自动降级为仅百度；html 端点限流（202）时自动退 lite 端点；引擎状态行如实标注结果数与疑似限流
 
 ## 开发
 

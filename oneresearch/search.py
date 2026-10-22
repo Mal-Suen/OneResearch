@@ -209,6 +209,32 @@ def parse_ddg_html(html: str) -> list[SearchResult]:
     return out
 
 
+def parse_ddg_lite_html(html: str) -> list[SearchResult]:
+    """解析 lite.duckduckgo.com 极简结果页（table 布局，html 端点限流时的退路）。"""
+    soup = BeautifulSoup(html, "lxml")
+    out: list[SearchResult] = []
+    for a in soup.select("a.result-link"):
+        url = _unwrap_ddg(a.get("href", ""))
+        if not url.startswith("http"):
+            continue
+        snippet = ""
+        row = a.find_parent("tr")
+        if row is not None:
+            nxt = row.find_next_sibling("tr")
+            if nxt is not None:
+                sn = nxt.select_one("td.result-snippet")
+                if sn is not None:
+                    snippet = sn.get_text(" ", strip=True)
+        out.append(SearchResult(
+            title=a.get_text(" ", strip=True),
+            url=url,
+            snippet=snippet,
+            engine="duckduckgo",
+            position=len(out) + 1,
+        ))
+    return out
+
+
 def parse_baidu_html(html: str) -> list[SearchResult]:
     soup = BeautifulSoup(html, "lxml")
     out: list[SearchResult] = []
@@ -267,7 +293,13 @@ async def _search_ddg(client: httpx.AsyncClient, query: str,
         data["df"] = "y"
     r = await client.post("https://html.duckduckgo.com/html/", data=data)
     r.raise_for_status()
-    return parse_ddg_html(r.text)[:max_results]
+    results = parse_ddg_html(r.text)
+    if not results:
+        # html 端点被限流（202 异常页）时退到 lite 端点再试一次
+        r2 = await client.get("https://lite.duckduckgo.com/lite/", params=data)
+        r2.raise_for_status()
+        results = parse_ddg_lite_html(r2.text)
+    return results[:max_results]
 
 
 async def _search_baidu(client: httpx.AsyncClient, query: str,
@@ -303,7 +335,8 @@ async def run_searches(queries: list[str], engines: list[str], max_results: int,
             except Exception as e:
                 status["duckduckgo"] = f"失败（{type(e).__name__}）"
         if "duckduckgo" not in status:
-            status["duckduckgo"] = f"ok（{len(results)} 条）"
+            status["duckduckgo"] = (f"ok（{len(results)} 条）" if results
+                                    else "0 条（html 与 lite 均无结果，疑似限流）")
         return results
 
     async def baidu_all() -> list[SearchResult]:
@@ -312,7 +345,9 @@ async def run_searches(queries: list[str], engines: list[str], max_results: int,
             await baidu_client.get("https://www.baidu.com/")  # 首页 cookie 引导
         except Exception:
             pass
-        for q in queries:
+        for i, q in enumerate(queries):
+            if i:
+                await asyncio.sleep(0.8)  # 与 DDG 一致间隔，降低连发触发反爬
             try:
                 results += await _search_baidu(baidu_client, q, max_results)
             except Exception as e:
@@ -320,7 +355,8 @@ async def run_searches(queries: list[str], engines: list[str], max_results: int,
         if results:
             await _resolve_baidu_links(baidu_client, results)
         if "baidu" not in status:
-            status["baidu"] = f"ok（{len(results)} 条）"
+            status["baidu"] = (f"ok（{len(results)} 条）" if results
+                               else "0 条（可能触发反爬或无结果）")
         return results
 
     try:
