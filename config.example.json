@@ -17,6 +17,7 @@
     "max_sources": 8
   },
   "llm": {
+    "enabled": true,
     "base_url": "",
     "api_key": "",
     "model": ""

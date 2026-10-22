@@ -13,7 +13,7 @@
 
 ### research(question, depth, focus, recency, max_sources)
 
-一次性联网调研。内部流水线：本地查询扩展 → DuckDuckGo（走代理）＋百度（直连，首页 cookie 引导）双引擎搜索 → 域名过滤与权威度加权 → 并发抓取（单页超时＋体积上限＋整体 deadline）→ trafilatura 正文提取 → 段落级打分浓缩（关键词覆盖＋来源权威度＋时效＋内容指纹去重＋反爬挑战页过滤）→ 报告。
+一次性联网调研。内部流水线：查询扩展（默认经内部 LLM 生成，可关）→ DuckDuckGo（走代理）＋百度（直连，首页 cookie 引导）双引擎搜索（2 小时结果缓存）→ 域名过滤与权威度加权 → 并发抓取（单页超时＋体积上限＋整体 deadline）→ trafilatura 正文提取 → 段落级打分浓缩（关键词覆盖＋来源权威度＋时效＋内容指纹去重＋反爬挑战页过滤）→ 报告。deep 深度检测到关键词缺口时自动补一轮定向搜索；对产品类问题自动追加「最新版本 release notes」保鲜查询；超过约 18 个月的来源标注时效提醒。
 
 | 参数 | 说明 |
 |---|---|
@@ -51,7 +51,7 @@ D:\ProgramData\anaconda3\python.exe -m pip install -i https://mirrors.aliyun.com
 复制 `config.example.json` 为 `config.json`（已被 .gitignore 排除）：
 
 - `proxy`：DuckDuckGo 依赖代理，默认 Clash `http://127.0.0.1:7890`，每次调研时探测，不在线自动只用百度；百度直连不需要代理
-- `llm`：填入 OpenAI 兼容的 `base_url`／`api_key`／`model` 后，查询生成与报告合成升级为内部 LLM 完成（DeepSeek、GLM、ARK 均可；base_url 填到 /v1 或等价前缀即可，自动拼接 /chat/completions）；不填走纯本地模式
+- `llm`：默认零配置——自动读取 Qwen Code 的 settings.json，复用当前激活模型（端点＋密钥＋模型名）做内部查询生成与报告合成，不引入任何新 API key。想换更省的辅助模型（如 deepseek-v4-flash-0731-oc）只改 `model` 字段，端点密钥仍自动复用；设 `"enabled": false` 回到纯本地材料模式；也可显式填 base_url/api_key/model 指向任意 OpenAI 兼容服务（显式配置优先）。内部 LLM 调用直接打到该模型端点，按端点自身计费规则计
 - `doubao`：豆包搜索 API key 插槽（预留，后续版本接入为第三搜索后端）
 - 环境变量覆盖：`ONERESEARCH_PROXY`、`ONERESEARCH_LLM_BASE_URL`、`ONERESEARCH_LLM_API_KEY`、`ONERESEARCH_LLM_MODEL`
 
@@ -61,11 +61,12 @@ D:\ProgramData\anaconda3\python.exe -m pip install -i https://mirrors.aliyun.com
 - 实网冒烟：「pyJianYingDraft 最新版本与剪映兼容性」standard 深度 6 秒完成，DDG 8 条＋百度 8 条，8 来源成报；报告挖到 0.3.1 已上 PyPI（2026-10-14）等可核对事实
 - MCP stdio：initialize 767ms，tools/list 暴露 research＋fetch_digest，research 实调出报告
 - `qwen mcp list`：oneresearch Connected
+- 2026-10-22 二次迭代：LLM 通道零配置自动发现（复用 Qwen Code 当前模型）实网验证；缺口驱动二轮／版本保鲜查询／2 小时搜索缓存／旧来源时效标注落地
 
 ## 设计取舍
 
 - **搜索引擎**：Bing 实测弃用——cn.bing.com 把 /search 重定向到 www.bing.com 首页，www.bing.com 对无浏览器指纹的自动化请求返回与查询无关的缓存结果；搜狗、360 直连进反爬验证页；百度需先访问首页拿 cookie 再搜索，实测稳定
-- **纯本地 vs 内部 LLM**：纯本地模式的报告是「材料组织」而非「结论合成」——主模型一次读完材料自己下结论；配置 llm 后升级为带 [S#] 引用的合成报告，材料摘录仍附后供核对
+- **内部 LLM 默认开启**：自动复用 Qwen Code 当前模型配置（零新 key），报告升级为带 [S#] 引用的合成结论，材料摘录仍附后供核对；设 `llm.enabled=false` 回到纯本地「材料组织」模式——主模型一次读完材料自己下结论
 - **deep 深度约 80 秒**：若客户端工具超时先于完成，调大 MCP_TOOL_TIMEOUT
 - **DDG 依赖代理在线**：代理不在线时自动降级为仅百度，报告的引擎状态行会注明
 

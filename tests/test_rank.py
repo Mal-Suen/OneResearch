@@ -28,8 +28,10 @@ def test_extract_terms_numbers():
     assert "Astro" in en and "Hugo" in en
     queries = build_queries(q, "standard")
     assert any("2026" in x for x in queries)
+    assert any("release notes" in x for x in queries)
     deep = build_queries(q, "deep")
-    assert all(x.count("2026") == 1 for x in deep)
+    assert all(x.count("2026") <= 1 for x in deep)
+    assert any("2026" in x for x in deep)
 
 
 def test_build_queries_depths():
@@ -105,9 +107,10 @@ def test_select_sources_content_dedup():
 
 def test_challenge_page_filtered():
     pages = [PageContent(url="https://a.com/x", title="Client Challenge",
-                         text="Client Challenge\nA required part of this site couldn't load. "
+                         text="A required part of this site couldn't load. "
                               "This may be due to a browser extension, network issues, "
-                              "or browser settings.",
+                              "or browser settings. Please check your connection, "
+                              "disable any ad blockers, or try using a different browser.",
                          date="", chars=286),
              PageContent(url="https://b.com/y", title="正常文章",
                          text="pyJianYingDraft 剪映 兼容性 正常内容。" * 40,

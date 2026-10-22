@@ -6,8 +6,12 @@ www.bing.com 对无浏览器指纹的自动化请求返回与查询无关的缓�
 """
 import asyncio
 import datetime
+import hashlib
+import json
 import re
-from dataclasses import dataclass
+import time
+from dataclasses import asdict, dataclass
+from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
 import httpx
@@ -61,27 +65,80 @@ def extract_terms(text: str) -> tuple[list[str], list[str]]:
     return en, zh
 
 
+def _product_term(en_terms: list[str]) -> str:
+    """挑最可能的产品名（最长的含字母检索词），用于版本保鲜查询。"""
+    alpha = [w for w in en_terms if any(c.isalpha() for c in w)]
+    return max(alpha, key=len) if alpha else ""
+
+
 def build_queries(question: str, depth: str, focus: str = "") -> list[str]:
-    """本地查询扩展：原问题＋核心词；deep 追加年份；focus 追加聚焦查询。"""
+    """本地查询扩展：原问题＋核心词＋聚焦＋版本保鲜查询；deep 追加年份。"""
     q = " ".join(question.split())
     en, zh = extract_terms(q)
     core = " ".join(en + zh)
     queries = [q]
     if depth != "quick" and core and core != q:
         queries.append(core)
+    f = " ".join((focus or "").split())
+    if f:
+        queries.append(f"{core or q} {f}")
+    product = _product_term(en)
+    if depth != "quick" and product:
+        queries.append(f"{product} 最新版本 release notes")
     if depth == "deep":
         year = str(datetime.date.today().year)
         if year not in q:
             queries.append(f"{core or q} {year}")
-    f = " ".join((focus or "").split())
-    if f:
-        queries.append(f"{core or q} {f}")
     seen, out = set(), []
     for x in queries:
         if x and x not in seen:
             seen.add(x)
             out.append(x)
     return out[:4]
+
+
+CACHE_DIR = Path(__file__).resolve().parent.parent / ".cache"
+CACHE_TTL_SECONDS = 2 * 3600
+CACHE_MAX_ENTRIES = 50
+
+
+def _cache_key(queries: list[str], engines: list[str], recency: str) -> str:
+    blob = json.dumps({"q": queries, "e": sorted(engines), "r": recency},
+                      ensure_ascii=False, sort_keys=True)
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+
+def _cache_load(key: str) -> list[SearchResult] | None:
+    try:
+        data = json.loads((CACHE_DIR / "search_cache.json").read_text(encoding="utf-8"))
+        entry = data.get(key)
+        if not entry or time.time() - entry.get("ts", 0) > CACHE_TTL_SECONDS:
+            return None
+        return [SearchResult(**r) for r in entry.get("results", [])]
+    except Exception:
+        return None
+
+
+def _cache_store(key: str, results: list[SearchResult]) -> None:
+    try:
+        CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        f = CACHE_DIR / "search_cache.json"
+        data = {}
+        if f.exists():
+            try:
+                data = json.loads(f.read_text(encoding="utf-8"))
+            except Exception:
+                data = {}
+        now = time.time()
+        data = {k: v for k, v in data.items()
+                if now - (v.get("ts") or 0) <= CACHE_TTL_SECONDS}
+        while len(data) >= CACHE_MAX_ENTRIES:
+            oldest = min(data, key=lambda k: (data[k].get("ts") or 0))
+            del data[oldest]
+        data[key] = {"ts": now, "results": [asdict(r) for r in results]}
+        f.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    except Exception:
+        pass
 
 
 _JUNK_HOSTS = re.compile(
@@ -223,8 +280,14 @@ async def _search_baidu(client: httpx.AsyncClient, query: str,
 async def run_searches(queries: list[str], engines: list[str], max_results: int,
                        proxy: str | None, timeout: float,
                        recency: str = "") -> tuple[list[SearchResult], dict]:
-    """双引擎并发搜索，返回（合并去重结果，引擎状态）。"""
+    """双引擎并发搜索，返回（合并去重结果，引擎状态）。2 小时内相同查询直接走缓存。"""
     status: dict[str, str] = {}
+    cache_key = None
+    if not recency:
+        cache_key = _cache_key(queries, engines, recency)
+        hit = _cache_load(cache_key)
+        if hit is not None:
+            return hit, {"缓存": f"命中（{len(hit)} 条，2 小时内）"}
     ddg_client = httpx.AsyncClient(proxy=proxy, timeout=timeout,
                                    follow_redirects=True, headers=HEADERS)
     baidu_client = httpx.AsyncClient(timeout=timeout, follow_redirects=True,
@@ -285,4 +348,6 @@ async def run_searches(queries: list[str], engines: list[str], max_results: int,
                 continue
             seen.add(key)
             merged.append(res)
+    if cache_key and merged and not any("失败" in v for v in status.values()):
+        _cache_store(cache_key, merged)
     return merged, status

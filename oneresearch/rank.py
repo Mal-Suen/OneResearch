@@ -60,15 +60,16 @@ def authority_note(url: str) -> str:
 _CHALLENGE_MARKERS = (
     "client challenge", "just a moment", "enable javascript and cookies",
     "verify you are human", "access denied", "请完成安全验证",
-    "百度安全验证", "请求被拦截",
+    "百度安全验证", "请求被拦截", "a required part of this site",
+    "disable any ad blockers",
 )
 
 
 def _is_challenge_page(page: PageContent) -> bool:
-    """短页且命中反爬/验证特征词的按挑战页丢弃。"""
+    """短页且命中反爬/验证特征词的按挑战页丢弃（标题＋正文都查）。"""
     if page.chars >= 800:
         return False
-    head = page.text[:300].lower()
+    head = (page.title + "\n" + page.text[:300]).lower()
     return any(m in head for m in _CHALLENGE_MARKERS)
 
 

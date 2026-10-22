@@ -3,3 +3,4 @@ __pycache__/
 config.json
 .pytest_cache/
 tests/smoke_mcp_stderr.log
+.cache/

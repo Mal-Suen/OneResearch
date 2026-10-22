@@ -10,7 +10,8 @@ from .fetch import fetch_pages
 from .llm import LLMClient
 from .rank import (authority_note, authority_of, domain_of, rank_sources,
                    select_sources)
-from .search import build_queries, extract_terms, run_searches
+from .search import (_product_term, build_queries, extract_terms, is_junk_url,
+                     normalize_url, run_searches)
 
 DEPTH_BUDGET = {"quick": 32, "standard": 50, "deep": 80}
 
@@ -62,13 +63,23 @@ def _material_text(chosen: list[dict]) -> str:
     return "\n".join(parts)
 
 
-def _gap_analysis(question: str, chosen: list[dict]) -> list[str]:
+def _missing_terms(question: str, focus: str,
+                   chosen: list[dict]) -> tuple[list[str], list[str]]:
+    """问题（＋focus）中未被入选来源覆盖的检索词。"""
     en, zh = extract_terms(question)
+    if focus:
+        fen, fzh = extract_terms(focus)
+        en, zh = en + fen, zh + fzh
     corpus = "\n".join(p for s in chosen for _score, p in s["kept"])
     low = corpus.lower()
     miss_en = [w for w in en if w.lower() not in low]
     miss_zh = [z for z in zh
                if z not in corpus and not any(z[i:i + 2] in corpus for i in range(len(z) - 1))]
+    return miss_en, miss_zh
+
+
+def _gap_analysis(question: str, chosen: list[dict]) -> list[str]:
+    miss_en, miss_zh = _missing_terms(question, "", chosen)
     gaps = []
     if miss_en:
         gaps.append(f"关键词未命中：{', '.join(miss_en[:8])}")
@@ -101,9 +112,17 @@ def _research_report(question, depth, queries, chosen, all_results, engine_statu
     for i, s in enumerate(chosen, 1):
         page, res = s["page"], s["result"]
         title = page.title or (res.title if res is not None else "") or page.url
+        stale = ""
+        if page.date:
+            try:
+                d = datetime.date.fromisoformat(page.date[:10])
+                if (datetime.date.today() - d).days > 550:
+                    stale = "｜较旧来源，注意时效"
+            except ValueError:
+                pass
         lines.append(f"### [S{i}] {title}")
         lines.append(f"- URL：{_u(page)}")
-        lines.append(f"- 日期：{page.date or '未知'}｜{authority_note(page.url)}"
+        lines.append(f"- 日期：{page.date or '未知'}{stale}｜{authority_note(_u(page))}"
                      f"｜正文 {page.chars} 字，摘录 {s['kept_chars']} 字")
         lines.append("")
         for _score, p in s["kept"]:
@@ -201,7 +220,7 @@ async def run_research(question: str, depth: str = "standard", focus: str = "",
     max_sources = max(1, min(max_sources, 12))
     notes: list[str] = []
 
-    # 1) 查询扩展（配置了 LLM 则升级）
+    # 1) 查询扩展（默认经内部 LLM——自动复用 Qwen Code 当前模型；失败回退本地）
     queries = build_queries(question, depth, focus)
     llm: LLMClient | None = None
     if llm_configured(cfg):
@@ -210,7 +229,7 @@ async def run_research(question: str, depth: str = "standard", focus: str = "",
                             cfg["llm"]["model"])
             gq = await asyncio.wait_for(llm.gen_queries(question, 3), timeout=20)
             if gq:
-                queries = list(dict.fromkeys(queries + gq))[:4]
+                queries = [question] + gq[:3]
                 notes.append("查询经内部 LLM 扩展")
         except Exception as e:
             notes.append(f"LLM 查询生成失败（{type(e).__name__}），回退本地查询")
@@ -237,12 +256,41 @@ async def run_research(question: str, depth: str = "standard", focus: str = "",
 
     # 4) 提取＋打分浓缩
     contents = await _extract_all(ok_pages)
+    per_source = cfg["output"]["per_source_chars"]
+    total_budget = max(3000, cfg["output"]["max_report_chars"] - 2600)
     scored = rank_sources(contents, results, question, focus, recency)
-    chosen = select_sources(scored, max_sources, cfg["output"]["per_source_chars"],
-                            max(3000, cfg["output"]["max_report_chars"] - 2600))
+    chosen = select_sources(scored, max_sources, per_source, total_budget)
     if not chosen:
         return _snippet_report(question, queries, results, engine_status, notes,
                                pages_raw, time.monotonic() - t0)
+
+    # 4b) deep 深度：缺口驱动第二轮搜索（时间允许时自动补盲区）
+    if depth == "deep" and time.monotonic() - t0 < budget * 0.55:
+        miss_en, miss_zh = _missing_terms(question, focus, chosen)
+        gap_terms = miss_en[:3] + miss_zh[:2]
+        if gap_terms:
+            product = _product_term(extract_terms(question)[0])
+            gap_query = " ".join(
+                ([product] if product and product not in gap_terms else [])
+                + gap_terms[:3])
+            results2, _st2 = await run_searches(
+                [gap_query], cfg["search"]["engines"],
+                cfg["search"]["max_results_per_engine"], proxy,
+                cfg["search"]["timeout"], recency)
+            seen = {normalize_url(r.url) for r in results}
+            fresh = [r for r in results2 if normalize_url(r.url) not in seen
+                     and not is_junk_url(r.url)]
+            if fresh:
+                pages2 = await fetch_pages(
+                    _pick_fetch_urls(fresh, 4), proxy,
+                    max_concurrent=cfg["fetch"]["max_concurrent"],
+                    per_page_timeout=cfg["fetch"]["per_page_timeout"],
+                    max_bytes=cfg["fetch"]["max_bytes_per_page"], deadline=12.0)
+                contents += await _extract_all(
+                    [p for p in pages2 if p.status == 200 and p.html])
+                scored = rank_sources(contents, results + fresh, question, focus, recency)
+                chosen = select_sources(scored, max_sources, per_source, total_budget)
+                notes.append(f"检测到覆盖缺口，已自动补充第二轮搜索：{gap_query}")
 
     # 5) LLM 合成（可选，允许略超预算）
     synthesis = ""
@@ -254,6 +302,8 @@ async def run_research(question: str, depth: str = "standard", focus: str = "",
                     llm.synthesize(question, _material_text(chosen)), timeout=remain)
             except Exception as e:
                 notes.append(f"LLM 合成失败（{type(e).__name__}），返回本地材料报告")
+        else:
+            notes.append("剩余时间不足，跳过 LLM 合成")
 
     return _research_report(question, depth, queries, chosen, results, engine_status,
                             notes, synthesis, time.monotonic() - t0,

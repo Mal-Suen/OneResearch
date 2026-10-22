@@ -9,6 +9,40 @@ from urllib.parse import urlparse
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_PATH = PROJECT_ROOT / "config.json"
+QWEN_SETTINGS_PATH = Path.home() / ".qwen" / "settings.json"
+
+
+def _discover_llm() -> dict:
+    """从 Qwen Code 的 settings.json 自动发现当前激活模型（端点＋密钥＋模型名）。
+    内部 LLM 通道默认复用 Qwen Code 正在用的模型，不要求用户另配任何 key。"""
+    try:
+        data = json.loads(QWEN_SETTINGS_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    model = data.get("model") or {}
+    name = str(model.get("name") or "").strip()
+    if not name:
+        return {}
+    base_url = str(model.get("baseUrl") or "").strip()
+    env_key = ""
+    for providers in (data.get("modelProviders") or {}).values():
+        if not isinstance(providers, list):
+            continue
+        for p in providers:
+            if isinstance(p, dict) and p.get("id") == name:
+                if not base_url:
+                    base_url = str(p.get("baseUrl") or "").strip()
+                env_key = str(p.get("envKey") or "")
+                break
+        if env_key:
+            break
+    api_key = ""
+    if env_key:
+        api_key = str((data.get("env") or {}).get(env_key)
+                      or os.environ.get(env_key) or "")
+    if not (base_url and api_key):
+        return {}
+    return {"base_url": base_url, "api_key": api_key, "model": name}
 
 DEFAULTS = {
     "proxy": "http://127.0.0.1:7890",
@@ -28,7 +62,7 @@ DEFAULTS = {
         "per_source_chars": 1800,
         "max_sources": 8,
     },
-    "llm": {"base_url": "", "api_key": "", "model": ""},
+    "llm": {"enabled": True, "base_url": "", "api_key": "", "model": ""},
     "doubao": {"api_key": "", "version": "global"},
 }
 
@@ -60,6 +94,15 @@ def load_config() -> dict:
             cfg["llm"][key] = env[var]
     if env.get("ONERESEARCH_DOUBAO_API_KEY"):
         cfg["doubao"]["api_key"] = env["ONERESEARCH_DOUBAO_API_KEY"]
+    llm = cfg["llm"]
+    if not llm.get("enabled", True):
+        cfg["llm"] = {"enabled": False, "base_url": "", "api_key": "", "model": ""}
+    elif not (llm.get("base_url") and llm.get("api_key")):
+        found = _discover_llm()
+        if found:
+            llm["base_url"] = llm.get("base_url") or found["base_url"]
+            llm["api_key"] = llm.get("api_key") or found["api_key"]
+            llm["model"] = llm.get("model") or found["model"]
     return cfg
 
 
@@ -79,4 +122,6 @@ def proxy_alive(proxy_url: str, timeout: float = 1.5) -> bool:
 
 def llm_configured(cfg: dict) -> bool:
     llm = cfg.get("llm") or {}
+    if not llm.get("enabled", True):
+        return False
     return bool(llm.get("base_url") and llm.get("api_key") and llm.get("model"))

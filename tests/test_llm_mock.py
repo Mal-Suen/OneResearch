@@ -57,3 +57,46 @@ def test_llm_client_roundtrip():
 
     asyncio.run(main())
     srv.shutdown()
+
+
+def _make_sensitive_server() -> ThreadingHTTPServer:
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self):
+            n = int(self.headers.get("Content-Length", 0))
+            req = json.loads(self.rfile.read(n))
+            user = req["messages"][-1]["content"]
+            if "解密" in user:
+                data = b"Internal Server Error"
+                self.send_response(500)
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+                return
+            content = "## 综合结论\n- 测试结论 [S1]"
+            data = json.dumps({"choices": [{"message": {"role": "assistant",
+                                                        "content": content}}]}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        def log_message(self, *args):
+            pass
+
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    return srv
+
+
+def test_synthesize_sensitive_retry():
+    srv = _make_sensitive_server()
+    port = srv.server_address[1]
+
+    async def main():
+        client = LLMClient(f"http://127.0.0.1:{port}/v1", "sk-test", "test-model")
+        report = await client.synthesize("测试", "材料提到解密实现，应触发过滤重试")
+        assert "[S1]" in report
+
+    asyncio.run(main())
+    srv.shutdown()
