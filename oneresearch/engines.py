@@ -5,13 +5,9 @@ Bing 实测弃用（2026-10-22）：cn.bing.com 将 /search 重定向到 www.bin
 www.bing.com 对无浏览器指纹的自动化请求返回与查询无关的缓存结果。
 """
 import asyncio
-import datetime
-import hashlib
-import json
+import base64
 import re
-import time
-from dataclasses import asdict, dataclass
-from pathlib import Path
+from dataclasses import dataclass
 from urllib.parse import parse_qs, unquote, urlparse
 
 import httpx
@@ -22,22 +18,6 @@ UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
 HEADERS = {"User-Agent": UA, "Accept-Language": "zh-CN,zh;q=0.9",
            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"}
 
-STOPWORDS_EN = {
-    "what", "which", "who", "whom", "when", "where", "why", "how",
-    "is", "are", "was", "were", "the", "a", "an", "of", "for", "to",
-    "in", "on", "at", "and", "or", "vs", "versus", "with", "about",
-    "please", "me", "my", "our", "should", "would", "could", "can",
-    "do", "does", "did", "i", "we", "you", "it", "its", "there",
-    "any", "some",
-}
-STOPWORDS_ZH = {
-    "什么", "怎么", "怎么样", "怎样", "如何", "哪个", "哪些", "为什么",
-    "是不是", "有没有", "请问", "一下", "现在", "目前", "应该", "能够",
-    "可以", "还是", "的", "了", "吗", "呢", "吧", "啊", "我", "你",
-    "他", "她", "它", "我们",
-}
-_ZH_SUFFIXES = ("怎么样", "怎样", "如何", "为什么", "什么", "吗", "呢", "吧")
-
 
 @dataclass
 class SearchResult:
@@ -46,105 +26,6 @@ class SearchResult:
     snippet: str = ""
     engine: str = ""
     position: int = 0
-
-
-def extract_terms(text: str) -> tuple[list[str], list[str]]:
-    """抽取检索词：英文词＋数字（年份/版本号）＋中文词组（用于查询扩展与段落打分）。"""
-    en = [w for w in re.findall(r"[A-Za-z][A-Za-z0-9_.+\-]{1,40}", text)
-          if w.lower() not in STOPWORDS_EN]
-    en += re.findall(r"\d+(?:\.\d+)*", text)
-    zh: list[str] = []
-    for run in re.findall(r"[\u4e00-\u9fff]+", text):
-        if run in STOPWORDS_ZH:
-            continue
-        for sw in _ZH_SUFFIXES:
-            if run.endswith(sw) and len(run) > len(sw):
-                run = run[: -len(sw)]
-        if len(run) >= 2 and run not in STOPWORDS_ZH:
-            zh.append(run)
-    return en, zh
-
-
-def _product_term(en_terms: list[str]) -> str:
-    """挑最可能的产品名（最长的含字母检索词），用于版本保鲜查询。"""
-    alpha = [w for w in en_terms if any(c.isalpha() for c in w)]
-    return max(alpha, key=len) if alpha else ""
-
-
-def build_queries(question: str, depth: str, focus: str = "") -> list[str]:
-    """本地查询扩展：原问题＋核心词＋聚焦＋版本保鲜查询；deep 追加年份。"""
-    q = " ".join(question.split())
-    en, zh = extract_terms(q)
-    core = " ".join(en + zh)
-    queries = [q]
-    if depth != "quick" and core and core != q:
-        queries.append(core)
-    f = " ".join((focus or "").split())
-    if f:
-        queries.append(f"{core or q} {f}")
-    product = _product_term(en)
-    if depth != "quick" and product:
-        queries.append(f"{product} 最新版本 release notes")
-    if depth == "deep":
-        year = str(datetime.date.today().year)
-        if year not in q:
-            queries.append(f"{core or q} {year}")
-    seen, out = set(), []
-    for x in queries:
-        if x and x not in seen:
-            seen.add(x)
-            out.append(x)
-    return out[:4]
-
-
-CACHE_DIR = Path(__file__).resolve().parent.parent / ".cache"
-CACHE_TTL_SECONDS = 2 * 3600
-CACHE_MAX_ENTRIES = 50
-
-
-def make_cache_key(parts: dict) -> str:
-    """由调研参数（问题/深度/聚焦/时效）构造缓存键。"""
-    blob = json.dumps(parts, ensure_ascii=False, sort_keys=True)
-    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
-
-
-def cache_load(key: str) -> dict | None:
-    """读取缓存条目 {"queries": [...], "results": [SearchResult...]}；不存在或过期返回 None。"""
-    try:
-        data = json.loads((CACHE_DIR / "search_cache.json").read_text(encoding="utf-8"))
-        entry = data.get(key)
-        if not entry or time.time() - entry.get("ts", 0) > CACHE_TTL_SECONDS:
-            return None
-        return {
-            "queries": [q for q in entry.get("queries", []) if isinstance(q, str)],
-            "results": [SearchResult(**r) for r in entry.get("results", [])],
-        }
-    except Exception:
-        return None
-
-
-def cache_store(key: str, queries: list[str], results: list[SearchResult]) -> None:
-    """写入缓存条目，顺带清理过期与超量条目；失败静默（缓存不可用不影响调研）。"""
-    try:
-        CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        f = CACHE_DIR / "search_cache.json"
-        data = {}
-        if f.exists():
-            try:
-                data = json.loads(f.read_text(encoding="utf-8"))
-            except Exception:
-                data = {}
-        now = time.time()
-        data = {k: v for k, v in data.items()
-                if now - (v.get("ts") or 0) <= CACHE_TTL_SECONDS}
-        while len(data) >= CACHE_MAX_ENTRIES:
-            oldest = min(data, key=lambda k: (data[k].get("ts") or 0))
-            del data[oldest]
-        data[key] = {"ts": now, "queries": list(queries),
-                     "results": [asdict(r) for r in results]}
-        f.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
-    except Exception:
-        pass
 
 
 _JUNK_HOSTS = re.compile(
@@ -298,10 +179,13 @@ async def _search_ddg(client: httpx.AsyncClient, query: str,
     elif recency == "year":
         data["df"] = "y"
     r = await client.post("https://html.duckduckgo.com/html/", data=data)
-    r.raise_for_status()
-    results = parse_ddg_html(r.text)
+    results: list[SearchResult] = []
+    if r.status_code == 200:
+        results = parse_ddg_html(r.text)
+    elif r.status_code not in (202, 403):
+        r.raise_for_status()
     if not results:
-        # html 端点被限流（202 异常页）时退到 lite 端点再试一次
+        # html 端点被限流（202 空页／403）时退到 lite 端点再试一次
         r2 = await client.get("https://lite.duckduckgo.com/lite/", params=data)
         r2.raise_for_status()
         results = parse_ddg_lite_html(r2.text)

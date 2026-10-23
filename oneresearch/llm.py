@@ -75,12 +75,19 @@ class LLMClient:
                   "只输出 JSON 字符串数组，不要任何其他文字。")
         content = await self.chat(system, f"调研问题：{question}\n最多 {n} 条。",
                                   temperature=0.3, max_tokens=400)
-        m = re.search(r"\[.*\]", content, re.S)
-        if not m:
-            raise LLMError("LLM 未返回 JSON 数组")
-        queries = [q.strip() for q in json.loads(m.group(0))
-                   if isinstance(q, str) and q.strip()]
-        return queries[:n]
+        # 先尝试整体解析，再逐个尝试无嵌套的 [...] 段（LLM 可能带前置文字）
+        for text in [content.strip(), *re.findall(r"\[[^\[\]]*\]", content)]:
+            try:
+                parsed = json.loads(text)
+            except (json.JSONDecodeError, TypeError):
+                continue
+            if not isinstance(parsed, list):
+                continue
+            queries = [q.strip() for q in parsed
+                       if isinstance(q, str) and q.strip()]
+            if queries:
+                return queries[:n]
+        raise LLMError("LLM 未返回 JSON 数组")
 
     async def synthesize(self, question: str, material: str) -> str:
         system = (

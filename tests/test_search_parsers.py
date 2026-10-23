@@ -1,12 +1,13 @@
 # -*- coding: utf-8 -*-
+import asyncio
 import pathlib
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from oneresearch.search import (parse_baidu_html, parse_ddg_html,
-                                parse_ddg_lite_html)
+from oneresearch.engines import (_search_ddg, parse_baidu_html,
+                                 parse_ddg_html, parse_ddg_lite_html)
 
 DDG_HTML = """
 <html><body>
@@ -82,3 +83,30 @@ def test_parse_ddg_lite():
     assert "concurrent" in res[0].snippet
     assert res[1].url == "https://example.com/direct"
     assert res[1].snippet == ""
+
+
+def test_search_ddg_403_falls_back_to_lite():
+    """html 端点 403（限流）时退到 lite 端点，而不是让引擎整体失败。"""
+    calls = []
+
+    class FakeResp:
+        def __init__(self, status_code, text=""):
+            self.status_code = status_code
+            self.text = text
+
+        def raise_for_status(self):
+            assert self.status_code < 400, f"unexpected HTTP {self.status_code}"
+
+    class FakeClient:
+        async def post(self, url, data=None):
+            calls.append("html")
+            return FakeResp(403)
+
+        async def get(self, url, params=None):
+            calls.append("lite")
+            return FakeResp(200, DDG_LITE_HTML)
+
+    results = asyncio.run(_search_ddg(FakeClient(), "asyncio", 8, ""))
+    assert calls == ["html", "lite"]
+    assert len(results) == 2
+    assert results[0].url == "https://docs.python.org/3/library/asyncio.html"

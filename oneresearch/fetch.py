@@ -83,7 +83,12 @@ async def fetch_pages(urls: list[str], proxy: str | None, max_concurrent: int = 
             return await asyncio.wait_for(_fetch_one(client, u, max_bytes),
                                           timeout=per_page_timeout + 3)
 
-    tasks = [asyncio.create_task(guarded(u)) for u in urls]
+    task_urls: dict[asyncio.Task, str] = {}
+    tasks = []
+    for u in urls:
+        t = asyncio.create_task(guarded(u))
+        task_urls[t] = u
+        tasks.append(t)
     try:
         done, pending = await asyncio.wait(tasks, timeout=max(deadline, 1.0))
         for t in pending:
@@ -93,7 +98,7 @@ async def fetch_pages(urls: list[str], proxy: str | None, max_concurrent: int = 
             try:
                 results.append(t.result())
             except Exception:
-                pass
+                results.append(PageFetch(url=task_urls[t], error="抓取超时跳过"))
         return results
     finally:
         await client.aclose()

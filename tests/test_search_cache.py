@@ -9,16 +9,16 @@ import time
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+import oneresearch.cache as c
 import oneresearch.pipeline as pl
-import oneresearch.search as s
+from oneresearch.cache import cache_load, cache_store, make_cache_key
+from oneresearch.engines import SearchResult
 from oneresearch.extract import PageContent
 from oneresearch.fetch import PageFetch
-from oneresearch.search import (SearchResult, cache_load, cache_store,
-                                make_cache_key)
 
 
 def test_cache_roundtrip(tmp_path, monkeypatch):
-    monkeypatch.setattr(s, "CACHE_DIR", tmp_path)
+    monkeypatch.setattr(c, "CACHE_DIR", tmp_path)
     key = make_cache_key({"question": "缓存测试", "depth": "standard",
                           "focus": "", "recency": ""})
     assert cache_load(key) is None
@@ -32,12 +32,12 @@ def test_cache_roundtrip(tmp_path, monkeypatch):
 
 
 def test_cache_ttl_expiry(tmp_path, monkeypatch):
-    monkeypatch.setattr(s, "CACHE_DIR", tmp_path)
+    monkeypatch.setattr(c, "CACHE_DIR", tmp_path)
     key = make_cache_key({"question": "q"})
     cache_store(key, ["q"], [SearchResult(title="t", url="https://a.com/x")])
     f = tmp_path / "search_cache.json"
     data = json.loads(f.read_text(encoding="utf-8"))
-    data[key]["ts"] = time.time() - s.CACHE_TTL_SECONDS - 10
+    data[key]["ts"] = time.time() - c.CACHE_TTL_SECONDS - 10
     f.write_text(json.dumps(data), encoding="utf-8")
     assert cache_load(key) is None
 
@@ -71,7 +71,7 @@ CFG = {
 
 def test_run_research_pipeline_cache_hit(tmp_path, monkeypatch):
     """同题二跑：第二次跳过查询生成与搜索（LLM 模式缓存失效问题由此修复）。"""
-    monkeypatch.setattr(s, "CACHE_DIR", tmp_path)
+    monkeypatch.setattr(c, "CACHE_DIR", tmp_path)
     calls = {"search": 0, "fetch": 0}
 
     async def fake_search(queries, engines, max_results, proxy, timeout,

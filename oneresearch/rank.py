@@ -4,8 +4,9 @@ import datetime
 import re
 from urllib.parse import urlparse
 
+from .engines import SearchResult
 from .extract import PageContent
-from .search import SearchResult, extract_terms
+from .queries import extract_terms
 
 AUTHORITY = {
     "github.com": 3.0, "gitlab.com": 2.5, "stackoverflow.com": 2.5,

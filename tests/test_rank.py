@@ -5,12 +5,12 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+from oneresearch.engines import SearchResult, is_junk_url, normalize_url
 from oneresearch.extract import PageContent
+from oneresearch.queries import build_queries, extract_terms
 from oneresearch.rank import (_term_hits, authority_note, authority_of,
                               domain_of, rank_sources, select_sources,
                               split_passages)
-from oneresearch.search import (SearchResult, build_queries, extract_terms,
-                                is_junk_url, normalize_url)
 
 
 def test_extract_terms_mixed():
@@ -80,7 +80,7 @@ def test_rank_and_select_budget():
                          date="2026-09-01", chars=800)
              for i in range(6)]
     results = [SearchResult(title=f"T{i}", url=f"https://site{i}.com/a",
-                            snippet="pyJianYingDraft 剪映", engine="bing",
+                            snippet="pyJianYingDraft 剪映", engine="baidu",
                             position=i + 1)
                for i in range(6)]
     scored = rank_sources(pages, results, "pyJianYingDraft 剪映兼容性", "", "")
@@ -98,7 +98,7 @@ def test_select_sources_content_dedup():
                          date="2026-09-01", chars=700)
              for i in range(3)]
     results = [SearchResult(title=f"M{i}", url=f"https://mirror{i}.com/a",
-                            engine="bing", position=i + 1)
+                            engine="baidu", position=i + 1)
                for i in range(3)]
     scored = rank_sources(pages, results, "指纹去重", "", "")
     chosen = select_sources(scored, 3, 500, 3000)
