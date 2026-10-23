@@ -10,8 +10,9 @@ from .fetch import fetch_pages
 from .llm import LLMClient
 from .rank import (authority_note, authority_of, domain_of, rank_sources,
                    select_sources)
-from .search import (_product_term, build_queries, extract_terms, is_junk_url,
-                     normalize_url, run_searches)
+from .search import (_product_term, build_queries, cache_load, cache_store,
+                     extract_terms, is_junk_url, make_cache_key, normalize_url,
+                     run_searches)
 
 DEPTH_BUDGET = {"quick": 32, "standard": 50, "deep": 80}
 
@@ -220,27 +221,42 @@ async def run_research(question: str, depth: str = "standard", focus: str = "",
     max_sources = max(1, min(max_sources, 12))
     notes: list[str] = []
 
-    # 1) 查询扩展（默认经内部 LLM——自动复用 Qwen Code 当前模型；失败回退本地）
-    queries = build_queries(question, depth, focus)
+    # 1+2) 查询生成与双引擎搜索（同题 2 小时内直接复用搜索结果，LLM 模式同样命中）
     llm: LLMClient | None = None
     if llm_configured(cfg):
-        try:
-            llm = LLMClient(cfg["llm"]["base_url"], cfg["llm"]["api_key"],
-                            cfg["llm"]["model"])
-            gq = await asyncio.wait_for(llm.gen_queries(question, 3), timeout=20)
-            if gq:
-                queries = [question] + gq[:3]
-                notes.append("查询经内部 LLM 扩展")
-        except Exception as e:
-            notes.append(f"LLM 查询生成失败（{type(e).__name__}），回退本地查询")
-
-    # 2) 双引擎搜索
+        llm = LLMClient(cfg["llm"]["base_url"], cfg["llm"]["api_key"],
+                        cfg["llm"]["model"])
     proxy = cfg["proxy"] if proxy_alive(cfg["proxy"]) else None
-    if proxy is None:
-        notes.append("代理不在线，DuckDuckGo 不可用，仅直连引擎")
-    results, engine_status = await run_searches(
-        queries, cfg["search"]["engines"], cfg["search"]["max_results_per_engine"],
-        proxy, cfg["search"]["timeout"], recency)
+
+    cache_key = make_cache_key({"question": question, "depth": depth,
+                                "focus": focus, "recency": recency})
+    cached = cache_load(cache_key)
+    if cached is not None:
+        queries = cached["queries"]
+        results = cached["results"]
+        engine_status = {"缓存": f"命中（{len(results)} 条，2 小时内）"}
+        notes.append("搜索结果命中 2 小时缓存，跳过查询生成与搜索")
+    else:
+        queries = build_queries(question, depth, focus)
+        if llm is not None:
+            try:
+                gq = await asyncio.wait_for(llm.gen_queries(question, 3), timeout=20)
+                if gq:
+                    # 保鲜查询始终保留，与 LLM 查询合并（上限 5 条）
+                    freshness = [q for q in queries if "release notes" in q]
+                    queries = list(dict.fromkeys(
+                        [question] + gq[:3] + freshness))[:5]
+                    notes.append("查询经内部 LLM 扩展")
+            except Exception as e:
+                notes.append(f"LLM 查询生成失败（{type(e).__name__}），回退本地查询")
+        if proxy is None:
+            notes.append("代理不在线，DuckDuckGo 不可用，仅直连引擎")
+        results, engine_status = await run_searches(
+            queries, cfg["search"]["engines"],
+            cfg["search"]["max_results_per_engine"], proxy,
+            cfg["search"]["timeout"], recency)
+        if results and not any("失败" in v for v in engine_status.values()):
+            cache_store(cache_key, queries, results)
     if not results:
         return _fail_report(question, queries, engine_status, notes,
                             time.monotonic() - t0)
@@ -264,8 +280,8 @@ async def run_research(question: str, depth: str = "standard", focus: str = "",
         return _snippet_report(question, queries, results, engine_status, notes,
                                pages_raw, time.monotonic() - t0)
 
-    # 4b) deep 深度：缺口驱动第二轮搜索（时间允许时自动补盲区）
-    if depth == "deep" and time.monotonic() - t0 < budget * 0.55:
+    # 4b) 缺口驱动第二轮搜索（standard/deep，时间允许时自动补盲区）
+    if depth in ("standard", "deep") and time.monotonic() - t0 < budget * 0.6:
         miss_en, miss_zh = _missing_terms(question, focus, chosen)
         gap_terms = miss_en[:3] + miss_zh[:2]
         if gap_terms:

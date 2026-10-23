@@ -13,7 +13,7 @@
 
 ### research(question, depth, focus, recency, max_sources)
 
-一次性联网调研。内部流水线：查询扩展（默认经内部 LLM 生成，可关）→ DuckDuckGo（走代理）＋百度（直连，首页 cookie 引导）双引擎搜索（2 小时结果缓存）→ 域名过滤与权威度加权 → 并发抓取（单页超时＋体积上限＋整体 deadline）→ trafilatura 正文提取 → 段落级打分浓缩（关键词覆盖＋来源权威度＋时效＋内容指纹去重＋反爬挑战页过滤）→ 报告。deep 深度检测到关键词缺口时自动补一轮定向搜索；对产品类问题自动追加「最新版本 release notes」保鲜查询；超过约 18 个月的来源标注时效提醒。
+一次性联网调研。内部流水线：查询扩展（默认经内部 LLM 生成，可关）→ DuckDuckGo（走代理）＋百度（直连，首页 cookie 引导）双引擎搜索 → 域名过滤与权威度加权 → 并发抓取（单页超时＋体积上限＋整体 deadline）→ trafilatura 正文提取 → 段落级打分浓缩（关键词覆盖＋来源权威度＋时效＋内容指纹去重＋反爬挑战页过滤）→ 报告。standard/deep 时间允许时检测关键词缺口自动补一轮定向搜索；对产品类问题自动追加「最新版本 release notes」保鲜查询（LLM 模式同样保留）；同题 2 小时内复用搜索结果缓存（含 LLM 模式）；超过约 18 个月的来源标注时效提醒。
 
 | 参数 | 说明 |
 |---|---|
@@ -63,6 +63,7 @@ D:\ProgramData\anaconda3\python.exe -m pip install -i https://mirrors.aliyun.com
 - `qwen mcp list`：oneresearch Connected
 - 2026-10-22 二次迭代：LLM 通道零配置自动发现（复用 Qwen Code 当前模型）实网验证；缺口驱动二轮／版本保鲜查询／2 小时搜索缓存／旧来源时效标注落地
 - 2026-10-22 效果实测（4 组全通）：mcp/FastMCP 合成报告与已知事实全部吻合；pyCapCut 报告命中全部基准且 deep 缺口二轮实际触发；本地模式缓存命中 5s→2s。实测限流规律：DDG html 202 限流→lite 端点兜底；百度连发触发反爬→查询加 0.8s 间隔；双引擎轮流扛住
+- 2026-10-23 迭代 3：LLM 瞬时错误（429/5xx）退避重试；缓存上移至调研参数级（question/depth/focus/recency 为键——LLM 模式同题二跑实测命中，跳过查询生成与搜索）；保鲜查询并入 LLM 查询（上限 5 条）；缺口二轮扩展至 standard
 
 ## 设计取舍
 

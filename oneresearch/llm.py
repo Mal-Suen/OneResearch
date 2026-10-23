@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """可选的内部 LLM 通道：OpenAI 兼容接口（查询生成＋报告合成）。未配置时流水线走纯本地模式。"""
+import asyncio
 import json
 import re
 
@@ -29,6 +30,9 @@ def _sanitize_material(material: str) -> str:
     return out
 
 
+_RETRYABLE_STATUS = (429, 500, 502, 503, 504)
+
+
 class LLMClient:
     def __init__(self, base_url: str, api_key: str, model: str, timeout: float = 45.0):
         self.endpoint = _endpoint(base_url)
@@ -47,14 +51,23 @@ class LLMClient:
         }
         headers = {"Authorization": f"Bearer {self.api_key}",
                    "Content-Type": "application/json"}
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            r = await client.post(self.endpoint, json=payload, headers=headers)
-            r.raise_for_status()
-            data = r.json()
-        try:
-            return data["choices"][0]["message"]["content"] or ""
-        except Exception as e:
-            raise LLMError(f"LLM 响应解析失败：{e}") from e
+        for attempt in range(2):
+            try:
+                async with httpx.AsyncClient(timeout=self.timeout) as client:
+                    r = await client.post(self.endpoint, json=payload, headers=headers)
+                r.raise_for_status()
+                data = r.json()
+                try:
+                    return data["choices"][0]["message"]["content"] or ""
+                except Exception as e:
+                    raise LLMError(f"LLM 响应解析失败：{e}") from e
+            except httpx.HTTPStatusError as e:
+                # 瞬时错误（限流/网关抖动）退避后重试一次
+                if e.response.status_code in _RETRYABLE_STATUS and attempt == 0:
+                    await asyncio.sleep(1.5)
+                    continue
+                raise
+        raise LLMError("LLM 调用失败")
 
     async def gen_queries(self, question: str, n: int = 3) -> list[str]:
         system = ("你是搜索查询生成器。针对给定的调研问题，生成互补的搜索查询"

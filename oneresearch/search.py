@@ -102,24 +102,29 @@ CACHE_TTL_SECONDS = 2 * 3600
 CACHE_MAX_ENTRIES = 50
 
 
-def _cache_key(queries: list[str], engines: list[str], recency: str) -> str:
-    blob = json.dumps({"q": queries, "e": sorted(engines), "r": recency},
-                      ensure_ascii=False, sort_keys=True)
+def make_cache_key(parts: dict) -> str:
+    """由调研参数（问题/深度/聚焦/时效）构造缓存键。"""
+    blob = json.dumps(parts, ensure_ascii=False, sort_keys=True)
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
 
-def _cache_load(key: str) -> list[SearchResult] | None:
+def cache_load(key: str) -> dict | None:
+    """读取缓存条目 {"queries": [...], "results": [SearchResult...]}；不存在或过期返回 None。"""
     try:
         data = json.loads((CACHE_DIR / "search_cache.json").read_text(encoding="utf-8"))
         entry = data.get(key)
         if not entry or time.time() - entry.get("ts", 0) > CACHE_TTL_SECONDS:
             return None
-        return [SearchResult(**r) for r in entry.get("results", [])]
+        return {
+            "queries": [q for q in entry.get("queries", []) if isinstance(q, str)],
+            "results": [SearchResult(**r) for r in entry.get("results", [])],
+        }
     except Exception:
         return None
 
 
-def _cache_store(key: str, results: list[SearchResult]) -> None:
+def cache_store(key: str, queries: list[str], results: list[SearchResult]) -> None:
+    """写入缓存条目，顺带清理过期与超量条目；失败静默（缓存不可用不影响调研）。"""
     try:
         CACHE_DIR.mkdir(parents=True, exist_ok=True)
         f = CACHE_DIR / "search_cache.json"
@@ -135,7 +140,8 @@ def _cache_store(key: str, results: list[SearchResult]) -> None:
         while len(data) >= CACHE_MAX_ENTRIES:
             oldest = min(data, key=lambda k: (data[k].get("ts") or 0))
             del data[oldest]
-        data[key] = {"ts": now, "results": [asdict(r) for r in results]}
+        data[key] = {"ts": now, "queries": list(queries),
+                     "results": [asdict(r) for r in results]}
         f.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
     except Exception:
         pass
@@ -312,14 +318,8 @@ async def _search_baidu(client: httpx.AsyncClient, query: str,
 async def run_searches(queries: list[str], engines: list[str], max_results: int,
                        proxy: str | None, timeout: float,
                        recency: str = "") -> tuple[list[SearchResult], dict]:
-    """双引擎并发搜索，返回（合并去重结果，引擎状态）。2 小时内相同查询直接走缓存。"""
+    """双引擎并发搜索，返回（合并去重结果，引擎状态）。"""
     status: dict[str, str] = {}
-    cache_key = None
-    if not recency:
-        cache_key = _cache_key(queries, engines, recency)
-        hit = _cache_load(cache_key)
-        if hit is not None:
-            return hit, {"缓存": f"命中（{len(hit)} 条，2 小时内）"}
     ddg_client = httpx.AsyncClient(proxy=proxy, timeout=timeout,
                                    follow_redirects=True, headers=HEADERS)
     baidu_client = httpx.AsyncClient(timeout=timeout, follow_redirects=True,
@@ -384,6 +384,4 @@ async def run_searches(queries: list[str], engines: list[str], max_results: int,
                 continue
             seen.add(key)
             merged.append(res)
-    if cache_key and merged and not any("失败" in v for v in status.values()):
-        _cache_store(cache_key, merged)
     return merged, status

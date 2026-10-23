@@ -100,3 +100,50 @@ def test_synthesize_sensitive_retry():
 
     asyncio.run(main())
     srv.shutdown()
+
+
+def _make_flaky_server():
+    state = {"count": 0}
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self):
+            n = int(self.headers.get("Content-Length", 0))
+            self.rfile.read(n)
+            state["count"] += 1
+            if state["count"] == 1:
+                data = b"Internal Server Error"
+                self.send_response(500)
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+                return
+            content = "重试成功"
+            data = json.dumps({"choices": [{"message": {"role": "assistant",
+                                                        "content": content}}]}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        def log_message(self, *args):
+            pass
+
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    return srv, state
+
+
+def test_chat_transient_retry():
+    """瞬时 5xx：退避后重试一次应成功（CTyun 间歇抽风的通用兜底）。"""
+    srv, state = _make_flaky_server()
+    port = srv.server_address[1]
+
+    async def main():
+        client = LLMClient(f"http://127.0.0.1:{port}/v1", "sk-test", "test-model")
+        content = await client.chat("sys", "user")
+        assert "重试成功" in content
+        assert state["count"] == 2
+
+    asyncio.run(main())
+    srv.shutdown()
