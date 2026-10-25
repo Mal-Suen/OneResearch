@@ -35,23 +35,29 @@
 ## 安装
 
 ```shell
-python -m pip install -r requirements.txt
+python -m pip install oneresearch        # 从 PyPI（发布后）；或源码运行见下
 # 国内网络可走镜像：
-python -m pip install -i https://mirrors.aliyun.com/pypi/simple/ -r requirements.txt
+python -m pip install -i https://mirrors.aliyun.com/pypi/simple/ oneresearch
 ```
+
+源码运行：`python -m pip install -r requirements.txt` 后直接用 `python -u server.py`（或开发安装 `pip install -e .` 后用 `python -m oneresearch`，两者等价）。
 
 注册 Qwen Code：直接编辑 `~/.qwen/settings.json` 的 `mcpServers`（不要用 `qwen mcp add`——它会把整串命令塞进 command 字段，Windows 下启动失败）：
 
 ```json
 "oneresearch": {
   "command": "<你的 Python 解释器路径>",
-  "args": ["-u", "<项目根目录>/server.py"]
+  "args": ["-u", "-m", "oneresearch"]
 }
 ```
 
-接入 DSH（DeepSeek Harness）：`dsh-bundle/` 目录是现成的配置型 bundle（dsh-mcp-client stdio 连接，工具调用超时放宽到 180 秒）。在该目录 `npm pack` 后把 tgz 路径交给 plugin_manager 的 install_bundle 即可（Windows 未开开发者模式时目录直装会因符号链接权限失败，tarball 走 file: 协议复制安装无此问题）。
-
 改完重启 Qwen Code 生效；`qwen mcp list` 应显示 Connected。配合全局 `~/.qwen/QWEN.md` 的「联网调研工具规则」，新会话做调研会优先调用本工具。
+
+接入 DSH（DeepSeek Harness）：
+
+- **插件市场**（推荐）：`market/index.json` 是 DSH 插件市场索引（format 1），把它的 http(s) 地址配置进 DSH 的自定义市场源（设置或 Discover 页），即可在 Discover 中搜索安装 `oneresearch-dsh-bundle`。索引里的安装源指向本仓库 `dsh-bundle/` 目录（git 提交锁定）。
+- **手动**：`dsh-bundle/` 是配置型 bundle（dsh-mcp-client stdio 连接，默认命令 `python -m oneresearch`，工具调用超时 180 秒）。在该目录 `npm pack` 后把 tgz 路径交给 plugin_manager 的 install_bundle（Windows 未开开发者模式时目录直装会因符号链接权限失败，tarball 走 file: 协议复制安装无此问题）。
+- 装好后若 `python` 不在 PATH，在 DSH 设置中把该插件 config 的 `command` 改为解释器绝对路径。
 
 ## 配置
 
@@ -78,7 +84,8 @@ OneResearch/
 │   ├── report.py          # 报告组装（四种形态）
 │   ├── llm.py             # 内部 LLM 通道（查询生成 / 报告合成 / thinking 自适应 / 两级重试）
 │   └── config.py          # 配置加载与 Qwen Code 模型自动发现
-├── dsh-bundle/            # DSH 接入 bundle（dsh-mcp-client stdio 配置）
+├── dsh-bundle/            # DSH 接入 bundle（dsh-mcp-client stdio 配置，市场分发用）
+├── market/index.json      # DSH 插件市场索引（format 1，指向 dsh-bundle 的 git 安装源）
 ├── tests/                 # 32 项单测 + 实网冒烟 + MCP stdio 冒烟 + LLM 通道诊断
 ├── docs/
 │   ├── 设计取舍.md         # 引擎选型实测、降级链、结构性边界

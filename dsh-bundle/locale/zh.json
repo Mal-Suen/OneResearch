@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "OneResearch 调研连接",
-    "description": "接入本地 OneResearch MCP 服务器：一次调用完成联网调研（research）与批量页面阅读（fetch_digest）。"
+    "description": "一次调用完成联网调研（research）与批量页面阅读（fetch_digest）。前置条件：pip install oneresearch；若 python 不在 PATH，请在设置中把 command 改为你的解释器路径。"
   }
 }

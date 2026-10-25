@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "OneResearch MCP Connection",
-    "description": "Connects the local OneResearch MCP server: one-call web research (research) and batch page digest (fetch_digest)."
+    "description": "One-call web research (research) and batch page digest (fetch_digest). Requires: pip install oneresearch, then adjust the command in settings if your Python is not on PATH as 'python'."
   }
 }
