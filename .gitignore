@@ -4,3 +4,4 @@ config.json
 .pytest_cache/
 tests/smoke_mcp_stderr.log
 .cache/
+dsh-bundle/*.tgz

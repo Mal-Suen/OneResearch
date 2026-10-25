@@ -1,0 +1,10 @@
+- insert:
+    - id: oneresearch-mcp
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: oneresearch
+        transport: stdio
+        command: 'D:\ProgramData\anaconda3\python.exe'
+        args: ['-u', 'E:\PrometheusProjects\OneResearch\server.py']
+        toolCallTimeoutMs: 180000
+        failOnStartupError: true

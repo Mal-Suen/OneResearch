@@ -204,10 +204,14 @@ async def run_searches(queries: list[str], engines: list[str], max_results: int,
                        recency: str = "") -> tuple[list[SearchResult], dict]:
     """双引擎并发搜索，返回（合并去重结果，引擎状态）。"""
     status: dict[str, str] = {}
+    # trust_env=False：代理由本模块显式传入（DDG 走代理、百度直连），
+    # 不读环境变量——避免 NO_PROXY 含 IPv6 字面量时 httpx 直接抛 InvalidURL，
+    # 也避免环境代理把直连引擎的流量劫持到本地代理。
     ddg_client = httpx.AsyncClient(proxy=proxy, timeout=timeout,
-                                   follow_redirects=True, headers=HEADERS)
+                                   follow_redirects=True, headers=HEADERS,
+                                   trust_env=False)
     baidu_client = httpx.AsyncClient(timeout=timeout, follow_redirects=True,
-                                     headers=HEADERS)
+                                     headers=HEADERS, trust_env=False)
 
     async def ddg_all() -> list[SearchResult]:
         results: list[SearchResult] = []

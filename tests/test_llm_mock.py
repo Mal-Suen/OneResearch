@@ -9,7 +9,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from oneresearch.llm import LLMClient, _endpoint
+from oneresearch.llm import (_THINKING_TOKEN_BUDGET, LLMClient, _endpoint,
+                             _needs_thinking)
 
 
 def _make_server() -> ThreadingHTTPServer:
@@ -184,6 +185,66 @@ def test_gen_queries_with_prefix_text():
         client = LLMClient(f"http://127.0.0.1:{port}/v1", "sk-test", "test-model")
         queries = await client.gen_queries("测试问题", 3)
         assert queries == ["查询甲", "查询乙"]
+
+    asyncio.run(main())
+    srv.shutdown()
+
+
+def test_needs_thinking_detection():
+    assert _needs_thinking('{"error":{"message":"thinking must be enabled for glm-5.3"}}')
+    assert _needs_thinking("该模型需要开启思考模式")
+    assert not _needs_thinking('{"error":{"message":"invalid api key"}}')
+    assert not _needs_thinking("")
+
+
+def _make_thinking_server() -> ThreadingHTTPServer:
+    state = {"requests": []}
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self):
+            n = int(self.headers.get("Content-Length", 0))
+            req = json.loads(self.rfile.read(n))
+            state["requests"].append(req)
+            if "thinking" not in req:
+                data = json.dumps({"error": {
+                    "message": "thinking must be enabled for glm-5.3. (request id: x)",
+                    "code": 400, "type": "upstream_error"}}).encode()
+                self.send_response(400)
+            else:
+                content = "## 综合结论\n- 测试结论 [S1]"
+                data = json.dumps({"choices": [
+                    {"message": {"role": "assistant", "content": content}}]}).encode()
+                self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        def log_message(self, *args):
+            pass
+
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    return srv, state
+
+
+def test_chat_thinking_auto_retry():
+    """网关要求 thinking 的模型：首次 400 后自动带 thinking 重试并追加思考预算，
+    客户端记住状态，后续调用直接带 thinking。"""
+    srv, state = _make_thinking_server()
+    port = srv.server_address[1]
+
+    async def main():
+        client = LLMClient(f"http://127.0.0.1:{port}/v1", "sk-test", "glm-test")
+        content = await client.chat("sys", "user", max_tokens=400)
+        assert "[S1]" in content
+        assert "thinking" not in state["requests"][0]
+        second = state["requests"][1]
+        assert second.get("thinking") == {"type": "enabled"}
+        assert second["max_tokens"] == 400 + _THINKING_TOKEN_BUDGET
+        await client.chat("sys", "user2", max_tokens=400)
+        assert state["requests"][2].get("thinking") == {"type": "enabled"}
+        assert len(state["requests"]) == 3  # 状态记住后不再触发 400
 
     asyncio.run(main())
     srv.shutdown()

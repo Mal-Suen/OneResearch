@@ -55,7 +55,8 @@ def _quote_term(term: str) -> str:
 
 
 def _log_research(question, depth, elapsed, engine_status, results_count,
-                  chosen_count, cache_hit, synthesis_ok):
+                  chosen_count, cache_hit, synthesis_ok, llm_used,
+                  synthesis_error=""):
     """JSONL 运行日志（追加写入 .cache/research_log.jsonl，失败静默）。"""
     try:
         from .cache import CACHE_DIR
@@ -70,8 +71,11 @@ def _log_research(question, depth, elapsed, engine_status, results_count,
             "results": results_count,
             "chosen": chosen_count,
             "cache_hit": cache_hit,
+            "llm": llm_used,
             "synthesis": synthesis_ok,
         }
+        if synthesis_error:
+            entry["synthesis_error"] = synthesis_error[:120]
         with open(log_path, "a", encoding="utf-8") as f:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
     except Exception:
@@ -101,6 +105,10 @@ async def run_research(question: str, depth: str = "standard", focus: str = "",
         llm = LLMClient(cfg["llm"]["base_url"], cfg["llm"]["api_key"],
                         cfg["llm"]["model"])
     proxy = cfg["proxy"] if proxy_alive(cfg["proxy"]) else None
+    engines = list(cfg["search"]["engines"])
+    if proxy is None and "duckduckgo" in engines:
+        # DDG 依赖代理：代理离线时直接跳过（直连必超时，白等 15 秒）
+        engines.remove("duckduckgo")
 
     cache_key = make_cache_key({"question": question, "depth": depth,
                                 "focus": focus, "recency": recency})
@@ -126,7 +134,7 @@ async def run_research(question: str, depth: str = "standard", focus: str = "",
         if proxy is None:
             notes.append("代理不在线，DuckDuckGo 不可用，仅直连引擎")
         results, engine_status = await run_searches(
-            queries, cfg["search"]["engines"],
+            queries, engines,
             cfg["search"]["max_results_per_engine"], proxy,
             cfg["search"]["timeout"], recency)
         if results and not any("失败" in v for v in engine_status.values()):
@@ -156,6 +164,7 @@ async def run_research(question: str, depth: str = "standard", focus: str = "",
 
     # 4b) 缺口驱动迭代搜索（standard 1 轮，deep 2 轮，时间允许时自动补盲区）
     cache_hit = cached is not None
+    gap_added = False
     max_rounds = 2 if depth == "deep" else 1
     for round_num in range(max_rounds):
         if time.monotonic() - t0 >= budget * 0.6:
@@ -169,7 +178,7 @@ async def run_research(question: str, depth: str = "standard", focus: str = "",
         parts += [_quote_term(t) for t in gap_terms[:3]]
         gap_query = " ".join(parts)
         results2, _st2 = await run_searches(
-            [gap_query], cfg["search"]["engines"],
+            [gap_query], engines,
             cfg["search"]["max_results_per_engine"], proxy,
             cfg["search"]["timeout"], recency)
         seen = {normalize_url(r.url) for r in results}
@@ -177,6 +186,8 @@ async def run_research(question: str, depth: str = "standard", focus: str = "",
                  and not is_junk_url(r.url)]
         if not fresh:
             break  # 补搜无新结果，继续也没意义
+        results = results + fresh  # 并入总结果：报告「其他候选」与下一轮去重可见
+        gap_added = True
         pages2 = await fetch_pages(
             _pick_fetch_urls(fresh, 4), proxy,
             max_concurrent=cfg["fetch"]["max_concurrent"],
@@ -184,12 +195,15 @@ async def run_research(question: str, depth: str = "standard", focus: str = "",
             max_bytes=cfg["fetch"]["max_bytes_per_page"], deadline=12.0)
         contents += await _extract_all(
             [p for p in pages2 if p.status == 200 and p.html])
-        scored = rank_sources(contents, results + fresh, question, focus, recency)
+        scored = rank_sources(contents, results, question, focus, recency)
         chosen = select_sources(scored, max_sources, per_source, total_budget)
         notes.append(f"第 {round_num + 1} 轮补搜（缺口 {len(gap_terms)} 词）：{gap_query}")
+    if gap_added:
+        cache_store(cache_key, queries, results)  # 补搜结果入缓存，同题二跑免补搜
 
     # 5) LLM 合成（可选，允许略超预算）
     synthesis = ""
+    synthesis_error = ""
     if llm is not None:
         remain = budget + 25 - (time.monotonic() - t0)
         if remain > 15:
@@ -197,16 +211,20 @@ async def run_research(question: str, depth: str = "standard", focus: str = "",
                 synthesis = await asyncio.wait_for(
                     llm.synthesize(question, _material_text(chosen)), timeout=remain)
             except Exception as e:
+                synthesis_error = f"{type(e).__name__}: {str(e)[:100]}"
                 notes.append(f"LLM 合成失败（{type(e).__name__}），返回本地材料报告")
         else:
+            synthesis_error = "剩余时间不足，跳过"
             notes.append("剩余时间不足，跳过 LLM 合成")
     if not synthesis and llm is not None:
         notes.append("报告为原始材料模式（未经 LLM 合成），建议主模型自行综合")
 
     _log_research(question, depth, time.monotonic() - t0, engine_status,
-                  len(results), len(chosen), cache_hit, bool(synthesis))
-    return _research_report(question, depth, queries, chosen, results, engine_status,
-                            notes, synthesis, time.monotonic() - t0,
+                  len(results), len(chosen), cache_hit, bool(synthesis),
+                  llm is not None, synthesis_error)
+    return _research_report(question, depth, focus, queries, chosen, results,
+                            engine_status, notes, synthesis,
+                            time.monotonic() - t0,
                             cfg["output"]["max_report_chars"])
 
 
@@ -230,7 +248,8 @@ async def run_fetch_digest(urls: list[str], question: str = "",
         return "全部 URL 抓取失败：" + "；".join(fails[:10])
 
     scored = rank_sources(contents, [], question, "", "")
+    # digest 模式不做噪音过滤：URL 是调用方指定的，零命中或同域名也不丢弃
     chosen = select_sources(scored, len(contents), cfg["output"]["per_source_chars"],
-                            cfg["output"]["max_report_chars"])
+                            cfg["output"]["max_report_chars"], filter_noise=False)
     return digest_report(chosen, pages_raw, urls, len(contents), question,
                          time.monotonic() - t0, cfg["output"]["max_report_chars"])

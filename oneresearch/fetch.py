@@ -74,9 +74,11 @@ async def fetch_pages(urls: list[str], proxy: str | None, max_concurrent: int = 
     if not urls:
         return []
     sem = asyncio.Semaphore(max_concurrent)
+    # trust_env=False：代理显式传入（在线时走 Clash，离线时直连），不读环境变量
     client = httpx.AsyncClient(
         proxy=proxy, timeout=per_page_timeout, follow_redirects=True,
-        headers={"User-Agent": UA, "Accept-Language": "zh-CN,en;q=0.8"})
+        headers={"User-Agent": UA, "Accept-Language": "zh-CN,en;q=0.8"},
+        trust_env=False)
 
     async def guarded(u: str) -> PageFetch:
         async with sem:

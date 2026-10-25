@@ -1,5 +1,14 @@
 # -*- coding: utf-8 -*-
-"""可选的内部 LLM 通道：OpenAI 兼容接口（查询生成＋报告合成）。未配置时流水线走纯本地模式。"""
+"""可选的内部 LLM 通道：OpenAI 兼容接口（查询生成＋报告合成）。未配置时流水线走纯本地模式。
+
+两类网关兼容处理（2026-10-26 实测）：
+- httpx 客户端一律 trust_env=False：本机 NO_PROXY 含 IPv6 字面量 [::1] 时，
+  httpx 解析环境代理直接抛 InvalidURL（llm 通道全程静默失败即此根因）；
+  代理由 OneResearch 自身探测后显式传入，不读环境变量，行为确定。
+- 必思考模型（如 CTyun 网关的 glm-5.3）不带 thinking 参数会回 400
+  「thinking must be enabled」：自动带 thinking 重试，且 max_tokens 需追加
+  思考预算（该网关的 reasoning 与正文共享 max_tokens，不追加则正文被截空）。
+"""
 import asyncio
 import json
 import re
@@ -16,6 +25,18 @@ def _endpoint(base_url: str) -> str:
     if b.endswith("/chat/completions"):
         return b
     return b + "/chat/completions"
+
+
+def _needs_thinking(error_body: str) -> bool:
+    """400 响应体是否表明该模型必须开启 thinking（如 CTyun 的 glm-5.3）。"""
+    low = (error_body or "").lower()
+    if "thinking" in low and "must be enabled" in low:
+        return True
+    return any(m in (error_body or "") for m in ("需要开启思考", "请开启思考",
+                                                 "必须开启思考"))
+
+
+_THINKING_TOKEN_BUDGET = 4000  # 思考模型的 reasoning 与正文共享 max_tokens
 
 
 _SENSITIVE_TERMS = ("解密", "破解", "脱壳", "提取密钥", "密钥提取", "decrypt", "crack")
@@ -39,9 +60,10 @@ class LLMClient:
         self.api_key = api_key
         self.model = model
         self.timeout = timeout
+        self._thinking = False  # 网关要求开启 thinking 后置 True，后续调用直接带上
 
-    async def chat(self, system: str, user: str, temperature: float = 0.2,
-                   max_tokens: int = 4000) -> str:
+    def _build_payload(self, system: str, user: str, temperature: float,
+                       max_tokens: int) -> dict:
         payload = {
             "model": self.model,
             "messages": [{"role": "system", "content": system},
@@ -49,12 +71,26 @@ class LLMClient:
             "temperature": temperature,
             "max_tokens": max_tokens,
         }
+        if self._thinking:
+            payload["thinking"] = {"type": "enabled"}
+            payload["max_tokens"] = max_tokens + _THINKING_TOKEN_BUDGET
+        return payload
+
+    async def chat(self, system: str, user: str, temperature: float = 0.2,
+                   max_tokens: int = 4000) -> str:
         headers = {"Authorization": f"Bearer {self.api_key}",
                    "Content-Type": "application/json"}
         for attempt in range(3):
+            payload = self._build_payload(system, user, temperature, max_tokens)
             try:
-                async with httpx.AsyncClient(timeout=self.timeout) as client:
-                    r = await client.post(self.endpoint, json=payload, headers=headers)
+                async with httpx.AsyncClient(timeout=self.timeout,
+                                             trust_env=False) as client:
+                    r = await client.post(self.endpoint, json=payload,
+                                          headers=headers)
+                if (r.status_code == 400 and not self._thinking
+                        and _needs_thinking(r.text)):
+                    self._thinking = True
+                    continue  # 立即带 thinking 重试（不计退避）
                 r.raise_for_status()
                 data = r.json()
                 try:

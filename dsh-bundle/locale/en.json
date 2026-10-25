@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "OneResearch MCP Connection",
+    "description": "Connects the local OneResearch MCP server: one-call web research (research) and batch page digest (fetch_digest)."
+  }
+}

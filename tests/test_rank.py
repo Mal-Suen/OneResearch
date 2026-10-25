@@ -120,3 +120,19 @@ def test_challenge_page_filtered():
     scored = rank_sources(pages, results, "pyJianYingDraft 兼容性", "", "")
     assert len(scored) == 1
     assert scored[0]["page"].url == "https://b.com/y"
+
+
+def test_select_sources_digest_keeps_zero_hits():
+    """digest 模式（filter_noise=False）：零命中与同域名来源不丢弃（URL 是调用方指定的）。"""
+    pages = [PageContent(url=f"https://docs.python.org/page{i}", title=f"D{i}",
+                         text=f"这是一份与问题完全无关的园艺指南{i}，讲述月季修剪与施肥。" * 40,
+                         date="", chars=1000)
+             for i in range(3)]
+    results = [SearchResult(title=f"D{i}", url=f"https://docs.python.org/page{i}",
+                            engine="baidu", position=i + 1)
+               for i in range(3)]
+    scored = rank_sources(pages, results, "FastMCP 部署方式", "", "")
+    chosen = select_sources(scored, 8, 500, 3000, filter_noise=False)
+    assert len(chosen) == 3  # 同域名 3 条全保留
+    # research 模式（默认）同样数据应全部被零命中剔除
+    assert select_sources(scored, 8, 500, 3000) == []

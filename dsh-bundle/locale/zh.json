@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "OneResearch 调研连接",
+    "description": "接入本地 OneResearch MCP 服务器：一次调用完成联网调研（research）与批量页面阅读（fetch_digest）。"
+  }
+}

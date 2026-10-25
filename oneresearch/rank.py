@@ -169,8 +169,12 @@ def rank_sources(pages: list[PageContent], results: list[SearchResult],
 
 
 def select_sources(scored: list[dict], max_sources: int, per_source_chars: int,
-                   max_total_chars: int) -> list[dict]:
-    """选来源：域名多样性＋内容指纹去重＋每源段数与字数上限＋全局字数预算。"""
+                   max_total_chars: int, filter_noise: bool = True) -> list[dict]:
+    """选来源：域名多样性＋内容指纹去重＋每源段数与字数上限＋全局字数预算。
+
+    filter_noise=True（research 模式）剔除关键词零命中的来源并限制同域名条数，
+    压制搜索噪音；digest 模式传 False——URL 是调用方指定的，不因不命中或同域丢弃，
+    仅保留指纹去重与字数预算。"""
     chosen: list[dict] = []
     used_domains: dict[str, int] = {}
     seen_fingerprints: set[str] = set()
@@ -178,10 +182,10 @@ def select_sources(scored: list[dict], max_sources: int, per_source_chars: int,
     for s in scored:
         if len(chosen) >= max_sources:
             break
-        if s.get("max_hits", 0) <= 0:
+        if filter_noise and s.get("max_hits", 0) <= 0:
             continue  # 关键词完全不命中的来源不入选（噪音剔除）
         d = domain_of(s["page"].final_url or s["page"].url)
-        if used_domains.get(d, 0) >= 2:
+        if filter_noise and used_domains.get(d, 0) >= 2:
             continue
         kept: list[tuple[float, str]] = []
         used = 0

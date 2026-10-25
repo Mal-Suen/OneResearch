@@ -49,14 +49,16 @@ python -m pip install -i https://mirrors.aliyun.com/pypi/simple/ -r requirements
 }
 ```
 
+接入 DSH（DeepSeek Harness）：`dsh-bundle/` 目录是现成的配置型 bundle（dsh-mcp-client stdio 连接，工具调用超时放宽到 180 秒）。在该目录 `npm pack` 后把 tgz 路径交给 plugin_manager 的 install_bundle 即可（Windows 未开开发者模式时目录直装会因符号链接权限失败，tarball 走 file: 协议复制安装无此问题）。
+
 改完重启 Qwen Code 生效；`qwen mcp list` 应显示 Connected。配合全局 `~/.qwen/QWEN.md` 的「联网调研工具规则」，新会话做调研会优先调用本工具。
 
 ## 配置
 
 复制 `config.example.json` 为 `config.json`（已被 .gitignore 排除）：
 
-- `proxy`：DuckDuckGo 依赖代理，默认 `http://127.0.0.1:7890`（常见本地代理端口，按你的代理工具修改），每次调研时探测，不在线自动只用百度
-- `llm`：默认零配置——自动读取 Qwen Code 的 settings.json，复用当前激活模型（端点＋密钥＋模型名）做内部查询生成与报告合成，不引入任何新 API key。想换更省的辅助模型只改 `model` 字段（端点密钥仍自动复用）；设 `"enabled": false` 回到纯本地材料模式；也可显式填 base_url／api_key／model 指向任意 OpenAI 兼容服务（显式配置优先）
+- `proxy`：DuckDuckGo 依赖代理，默认 `http://127.0.0.1:7890`（常见本地代理端口，按你的代理工具修改），每次调研时探测，不在线自动只用百度（并直接跳过 DDG，不再白等超时）
+- `llm`：默认零配置——自动读取 Qwen Code 的 settings.json，复用当前激活模型（端点＋密钥＋模型名）做内部查询生成与报告合成，不引入任何新 API key。想换更省的辅助模型只改 `model` 字段（端点密钥仍自动复用；合成建议用快而无思考的模型，必思考模型也能用——网关要求 thinking 时自动带上并追加思考预算，只是更慢）；设 `"enabled": false` 回到纯本地材料模式；也可显式填 base_url／api_key／model 指向任意 OpenAI 兼容服务（显式配置优先）
 - `doubao`：豆包搜索 API key 插槽（预留，后续版本接入为第三搜索后端）
 - 环境变量覆盖：`ONERESEARCH_PROXY`、`ONERESEARCH_LLM_BASE_URL`、`ONERESEARCH_LLM_API_KEY`、`ONERESEARCH_LLM_MODEL`
 
@@ -74,9 +76,10 @@ OneResearch/
 │   ├── extract.py         # 正文提取（trafilatura 主，bs4 兜底）
 │   ├── rank.py            # 相关性打分与浓缩（权威度 / 时效 / 指纹去重）
 │   ├── report.py          # 报告组装（四种形态）
-│   ├── llm.py             # 内部 LLM 通道（查询生成 / 报告合成 / 两级重试）
+│   ├── llm.py             # 内部 LLM 通道（查询生成 / 报告合成 / thinking 自适应 / 两级重试）
 │   └── config.py          # 配置加载与 Qwen Code 模型自动发现
-├── tests/                 # 26 项单测 + 实网冒烟 + MCP stdio 冒烟
+├── dsh-bundle/            # DSH 接入 bundle（dsh-mcp-client stdio 配置）
+├── tests/                 # 32 项单测 + 实网冒烟 + MCP stdio 冒烟 + LLM 通道诊断
 ├── docs/
 │   ├── 设计取舍.md         # 引擎选型实测、降级链、结构性边界
 │   └── 验证记录.md         # 全部验证轮次与实测数据
@@ -86,7 +89,7 @@ OneResearch/
 
 ## 验证摘要
 
-- 26 项离线单测全过；MCP stdio 握手 767ms；`qwen mcp list` Connected
+- 32 项离线单测全过；MCP stdio 握手约 0.7 秒；`qwen mcp list` Connected；DSH 侧经 dsh-bundle 接入后工具实调出报告
 - 效果实测 4 组全通，合成报告与已知基准事实全部吻合（详见 `docs/验证记录.md`）
 - 子会话实证：全新会话做调研的第一动作即调用 research，按报告缺口清单用 fetch_digest 定向补读
 

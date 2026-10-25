@@ -41,8 +41,8 @@ def _missing_terms(question: str, focus: str,
     return miss_en, miss_zh
 
 
-def _gap_analysis(question: str, chosen: list[dict]) -> list[str]:
-    miss_en, miss_zh = _missing_terms(question, "", chosen)
+def _gap_analysis(question: str, focus: str, chosen: list[dict]) -> list[str]:
+    miss_en, miss_zh = _missing_terms(question, focus, chosen)
     gaps = []
     if miss_en:
         gaps.append(f"关键词未命中：{', '.join(miss_en[:8])}")
@@ -53,8 +53,8 @@ def _gap_analysis(question: str, chosen: list[dict]) -> list[str]:
     return gaps
 
 
-def _research_report(question, depth, queries, chosen, all_results, engine_status,
-                     notes, synthesis, elapsed, max_chars) -> str:
+def _research_report(question, depth, focus, queries, chosen, all_results,
+                     engine_status, notes, synthesis, elapsed, max_chars) -> str:
     lines = [
         f"# 调研报告：{question}",
         "",
@@ -111,7 +111,7 @@ def _research_report(question, depth, queries, chosen, all_results, engine_statu
     lines.append("")
     lines.append("## 覆盖情况与缺口")
     lines.append("")
-    for g in _gap_analysis(question, chosen):
+    for g in _gap_analysis(question, focus, chosen):
         lines.append(f"- {g}")
     lines.append("- 材料不足时：带 focus 参数再调研一次，或用 fetch_digest 直接读上方列出的 URL")
     text = "\n".join(lines)
