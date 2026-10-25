@@ -109,3 +109,7 @@ python tests/smoke_mcp.py
 ```
 
 设计取舍与结构性边界见 `docs/设计取舍.md`。
+
+## 许可证
+
+GPL-3.0-or-later，见 [LICENSE](LICENSE)。
