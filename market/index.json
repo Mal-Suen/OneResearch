@@ -1,0 +1,70 @@
+{
+  "format": 1,
+  "title": {
+    "en": "Mal-Suen DSH Plugin Market",
+    "zh": "Mal-Suen 的 DSH 插件市场"
+  },
+  "description": {
+    "en": "Personal plugin market index for DeepSeek Harness bundles by Mal-Suen.",
+    "zh": "Mal-Suen 维护的 DeepSeek Harness 插件市场索引。"
+  },
+  "metadata": {
+    "categories": {
+      "research": {
+        "title": {
+          "en": "Research & Search",
+          "zh": "调研与搜索"
+        }
+      }
+    },
+    "labels": {},
+    "sortKeys": {}
+  },
+  "plugins": [
+    {
+      "name": "oneresearch-dsh-bundle",
+      "title": {
+        "en": "OneResearch",
+        "zh": "OneResearch（一次调研）"
+      },
+      "description": {
+        "en": "One-call web research for coding agents: dual-engine search, concurrent fetching, extraction, ranking, and LLM synthesis in a single MCP tool call (research), plus batch page digest (fetch_digest). Requires pip install oneresearch.",
+        "zh": "把编码智能体的联网调研折叠为一次 MCP 调用：内部完成双引擎搜索、并发抓取、正文提取、相关性浓缩与 LLM 合成（research），另有批量页面阅读（fetch_digest）。前置条件：pip install oneresearch。"
+      },
+      "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCI+CiAgPHJlY3QgeD0iMTAiIHk9IjYiIHdpZHRoPSIzNCIgaGVpZ2h0PSI0NiIgcng9IjUiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzFmNmZlYiIgc3Ryb2tlLXdpZHRoPSI0Ii8+CiAgPHBhdGggZD0iTTE4IDE4aDE4TTE4IDI3aDE4TTE4IDM2aDEyIiBmaWxsPSJub25lIiBzdHJva2U9IiMxZjZmZWIiIHN0cm9rZS13aWR0aD0iNCIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+CiAgPGNpcmNsZSBjeD0iNDIiIGN5PSI0NCIgcj0iMTEiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzBkOTQ4OCIgc3Ryb2tlLXdpZHRoPSI1Ii8+CiAgPHBhdGggZD0iTTUwIDUybDkgOSIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjMGQ5NDg4IiBzdHJva2Utd2lkdGg9IjYiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgo8L3N2Zz4K",
+      "author": "Mal-Suen",
+      "homepage": "https://github.com/Mal-Suen/OneResearch#readme",
+      "repository": {
+        "url": "https://github.com/Mal-Suen/OneResearch",
+        "directory": "dsh-bundle"
+      },
+      "metadata": {
+        "category": "research",
+        "keywords": [
+          "mcp",
+          "research",
+          "search",
+          "web",
+          "chinese"
+        ],
+        "labels": [],
+        "sortKeys": {}
+      },
+      "versions": [
+        {
+          "version": "1.1.0",
+          "publishTimestamp": 1792955265,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/Mal-Suen/OneResearch",
+            "commit": "72c292c7d46b2583df0b19dc56daceec8aa2cfde",
+            "path": "dsh-bundle"
+          },
+          "engines": {
+            "dsh": ">=0.2.1-rc.2"
+          }
+        }
+      ]
+    }
+  ]
+}
