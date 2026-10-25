@@ -51,7 +51,7 @@ class LLMClient:
         }
         headers = {"Authorization": f"Bearer {self.api_key}",
                    "Content-Type": "application/json"}
-        for attempt in range(2):
+        for attempt in range(3):
             try:
                 async with httpx.AsyncClient(timeout=self.timeout) as client:
                     r = await client.post(self.endpoint, json=payload, headers=headers)
@@ -62,9 +62,9 @@ class LLMClient:
                 except Exception as e:
                     raise LLMError(f"LLM 响应解析失败：{e}") from e
             except httpx.HTTPStatusError as e:
-                # 瞬时错误（限流/网关抖动）退避后重试一次
-                if e.response.status_code in _RETRYABLE_STATUS and attempt == 0:
-                    await asyncio.sleep(1.5)
+                # 瞬时错误（限流/网关抖动）递增退避后重试（最多 2 次）
+                if e.response.status_code in _RETRYABLE_STATUS and attempt < 2:
+                    await asyncio.sleep(1.5 * (attempt + 1))
                     continue
                 raise
         raise LLMError("LLM 调用失败")

@@ -1,7 +1,10 @@
 # -*- coding: utf-8 -*-
 """调研流水线编排：research 一次成型＋fetch_digest 批量阅读。"""
 import asyncio
+import datetime
+import json
 import time
+from pathlib import Path
 
 from .cache import cache_load, cache_store, make_cache_key
 from .config import llm_configured, load_config, proxy_alive
@@ -42,6 +45,37 @@ async def _extract_all(pages, min_chars: int = 120) -> list:
         *[asyncio.to_thread(extract_page, p.url, p.html, p.final_url)
           for p in pages])
     return [c for c in contents if c.chars >= min_chars]
+
+
+def _quote_term(term: str) -> str:
+    """复合词加引号精准匹配（避免被搜索引擎拆散）。"""
+    if len(term) >= 6 and any(c in term for c in "-._"):
+        return f'"{term}"'
+    return term
+
+
+def _log_research(question, depth, elapsed, engine_status, results_count,
+                  chosen_count, cache_hit, synthesis_ok):
+    """JSONL 运行日志（追加写入 .cache/research_log.jsonl，失败静默）。"""
+    try:
+        from .cache import CACHE_DIR
+        log_path = CACHE_DIR / "research_log.jsonl"
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        entry = {
+            "ts": datetime.datetime.now().isoformat()[:19],
+            "question": question[:100],
+            "depth": depth,
+            "elapsed_s": round(elapsed),
+            "engines": engine_status,
+            "results": results_count,
+            "chosen": chosen_count,
+            "cache_hit": cache_hit,
+            "synthesis": synthesis_ok,
+        }
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
 
 
 async def run_research(question: str, depth: str = "standard", focus: str = "",
@@ -120,33 +154,39 @@ async def run_research(question: str, depth: str = "standard", focus: str = "",
         return _snippet_report(question, queries, results, engine_status, notes,
                                pages_raw, time.monotonic() - t0)
 
-    # 4b) 缺口驱动第二轮搜索（standard/deep，时间允许时自动补盲区）
-    if depth in ("standard", "deep") and time.monotonic() - t0 < budget * 0.6:
+    # 4b) 缺口驱动迭代搜索（standard 1 轮，deep 2 轮，时间允许时自动补盲区）
+    cache_hit = cached is not None
+    max_rounds = 2 if depth == "deep" else 1
+    for round_num in range(max_rounds):
+        if time.monotonic() - t0 >= budget * 0.6:
+            break
         miss_en, miss_zh = _missing_terms(question, focus, chosen)
         gap_terms = miss_en[:3] + miss_zh[:2]
-        if gap_terms:
-            product = _product_term(extract_terms(question)[0])
-            gap_query = " ".join(
-                ([product] if product and product not in gap_terms else [])
-                + gap_terms[:3])
-            results2, _st2 = await run_searches(
-                [gap_query], cfg["search"]["engines"],
-                cfg["search"]["max_results_per_engine"], proxy,
-                cfg["search"]["timeout"], recency)
-            seen = {normalize_url(r.url) for r in results}
-            fresh = [r for r in results2 if normalize_url(r.url) not in seen
-                     and not is_junk_url(r.url)]
-            if fresh:
-                pages2 = await fetch_pages(
-                    _pick_fetch_urls(fresh, 4), proxy,
-                    max_concurrent=cfg["fetch"]["max_concurrent"],
-                    per_page_timeout=cfg["fetch"]["per_page_timeout"],
-                    max_bytes=cfg["fetch"]["max_bytes_per_page"], deadline=12.0)
-                contents += await _extract_all(
-                    [p for p in pages2 if p.status == 200 and p.html])
-                scored = rank_sources(contents, results + fresh, question, focus, recency)
-                chosen = select_sources(scored, max_sources, per_source, total_budget)
-                notes.append(f"检测到覆盖缺口，已自动补充第二轮搜索：{gap_query}")
+        if not gap_terms:
+            break  # 无缺口，提前结束
+        product = _product_term(extract_terms(question)[0])
+        parts = ([_quote_term(product)] if product and product not in gap_terms else [])
+        parts += [_quote_term(t) for t in gap_terms[:3]]
+        gap_query = " ".join(parts)
+        results2, _st2 = await run_searches(
+            [gap_query], cfg["search"]["engines"],
+            cfg["search"]["max_results_per_engine"], proxy,
+            cfg["search"]["timeout"], recency)
+        seen = {normalize_url(r.url) for r in results}
+        fresh = [r for r in results2 if normalize_url(r.url) not in seen
+                 and not is_junk_url(r.url)]
+        if not fresh:
+            break  # 补搜无新结果，继续也没意义
+        pages2 = await fetch_pages(
+            _pick_fetch_urls(fresh, 4), proxy,
+            max_concurrent=cfg["fetch"]["max_concurrent"],
+            per_page_timeout=cfg["fetch"]["per_page_timeout"],
+            max_bytes=cfg["fetch"]["max_bytes_per_page"], deadline=12.0)
+        contents += await _extract_all(
+            [p for p in pages2 if p.status == 200 and p.html])
+        scored = rank_sources(contents, results + fresh, question, focus, recency)
+        chosen = select_sources(scored, max_sources, per_source, total_budget)
+        notes.append(f"第 {round_num + 1} 轮补搜（缺口 {len(gap_terms)} 词）：{gap_query}")
 
     # 5) LLM 合成（可选，允许略超预算）
     synthesis = ""
@@ -160,7 +200,11 @@ async def run_research(question: str, depth: str = "standard", focus: str = "",
                 notes.append(f"LLM 合成失败（{type(e).__name__}），返回本地材料报告")
         else:
             notes.append("剩余时间不足，跳过 LLM 合成")
+    if not synthesis and llm is not None:
+        notes.append("报告为原始材料模式（未经 LLM 合成），建议主模型自行综合")
 
+    _log_research(question, depth, time.monotonic() - t0, engine_status,
+                  len(results), len(chosen), cache_hit, bool(synthesis))
     return _research_report(question, depth, queries, chosen, results, engine_status,
                             notes, synthesis, time.monotonic() - t0,
                             cfg["output"]["max_report_chars"])

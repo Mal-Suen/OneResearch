@@ -93,12 +93,14 @@ def _research_report(question, depth, queries, chosen, all_results, engine_statu
             lines.append("")
     lines.append("## 来源清单")
     lines.append("")
-    lines.append("| # | 标题 | 域名 | 日期 |")
-    lines.append("|---|---|---|---|")
+    lines.append("| # | 标题 | 域名 | 日期 | 相关度 |")
+    lines.append("|---|---|---|---|---|")
     for i, s in enumerate(chosen, 1):
         page = s["page"]
         t = (page.title or "")[:40].replace("|", "／")
-        lines.append(f"| S{i} | {t} | {domain_of(_u(page))} | {page.date or '—'} |")
+        score = s["passages"][0][0] if s.get("passages") else 0
+        relevance = "高" if score >= 10 else ("中" if score >= 5 else "低")
+        lines.append(f"| S{i} | {t} | {domain_of(_u(page))} | {page.date or '—'} | {relevance} |")
     chosen_urls = {s["page"].url for s in chosen}
     extra = [r for r in all_results if r.url not in chosen_urls][:10]
     if extra:

@@ -145,8 +145,11 @@ def rank_sources(pages: list[PageContent], results: list[SearchResult],
         rec = recency_bonus(page.date, recency)
         passages = split_passages(page.text)
         ranked: list[tuple[float, int, str]] = []
+        max_hits = 0.0
         for idx, p in enumerate(passages):
-            score = _term_hits(p, en, zh)
+            hits = _term_hits(p, en, zh)
+            max_hits = max(max_hits, hits)
+            score = hits
             score += max(0.0, 1.0 - idx / max(len(passages), 1)) * 0.8
             score += auth * 1.5 + rec
             if res is not None and res.snippet:
@@ -159,7 +162,8 @@ def rank_sources(pages: list[PageContent], results: list[SearchResult],
         if res is not None:
             total += 1.5 / max(res.position, 1)
         scored.append({"page": page, "result": res, "authority": auth,
-                       "recency": rec, "passages": ranked, "total": total})
+                       "recency": rec, "passages": ranked, "total": total,
+                       "max_hits": max_hits})
     scored.sort(key=lambda s: -s["total"])
     return scored
 
@@ -174,6 +178,8 @@ def select_sources(scored: list[dict], max_sources: int, per_source_chars: int,
     for s in scored:
         if len(chosen) >= max_sources:
             break
+        if s.get("max_hits", 0) <= 0:
+            continue  # 关键词完全不命中的来源不入选（噪音剔除）
         d = domain_of(s["page"].final_url or s["page"].url)
         if used_domains.get(d, 0) >= 2:
             continue

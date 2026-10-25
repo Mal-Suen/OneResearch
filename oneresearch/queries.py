@@ -44,13 +44,23 @@ def _product_term(en_terms: list[str]) -> str:
 
 
 def build_queries(question: str, depth: str, focus: str = "") -> list[str]:
-    """本地查询扩展：原问题＋核心词＋聚焦＋版本保鲜查询；deep 追加年份。"""
+    """本地查询扩展：原问题＋核心词（截断）＋复合词专项＋聚焦＋保鲜查询；deep 追加年份。"""
     q = " ".join(question.split())
     en, zh = extract_terms(q)
+    # 核心词过多时按长度优先保留（复合词/产品名优先，避免被长混合查询淹没）
+    if len(en) > 8:
+        en = sorted(en, key=len, reverse=True)[:8]
     core = " ".join(en + zh)
     queries = [q]
     if depth != "quick" and core and core != q:
         queries.append(core)
+    # 最长复合词专项查询（低知名度实体不被长混合查询淹没）
+    if depth != "quick" and en:
+        longest = max(en, key=len)
+        if len(longest) >= 6:
+            term_query = longest if not zh else f"{longest} {zh[0]}"
+            if term_query not in queries:
+                queries.append(term_query)
     f = " ".join((focus or "").split())
     if f:
         queries.append(f"{core or q} {f}")
@@ -66,4 +76,4 @@ def build_queries(question: str, depth: str, focus: str = "") -> list[str]:
         if x and x not in seen:
             seen.add(x)
             out.append(x)
-    return out[:4]
+    return out[:5]
