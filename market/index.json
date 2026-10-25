@@ -57,7 +57,7 @@
           "source": {
             "type": "git",
             "url": "https://github.com/Mal-Suen/OneResearch",
-            "commit": "72c292c7d46b2583df0b19dc56daceec8aa2cfde",
+            "commit": "9d772dae03c9d92bd633f46f3e6017f14b57220d",
             "path": "dsh-bundle"
           },
           "engines": {
