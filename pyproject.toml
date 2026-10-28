@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "oneresearch"
-version = "1.0.0"
+dynamic = ["version"]
 description = "OneResearch（一次调研）：把联网调研的多轮搜索阅读循环折叠为一次 MCP 工具调用"
 readme = "README.md"
 license = { text = "GPL-3.0-or-later" }
@@ -16,6 +16,9 @@ dependencies = [
     "lxml>=5.2",
     "trafilatura>=1.12,<2",
 ]
+
+[tool.setuptools.dynamic]
+version = { attr = "oneresearch.__version__" }
 
 [tool.setuptools]
 packages = ["oneresearch"]

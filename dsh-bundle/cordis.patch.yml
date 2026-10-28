@@ -7,4 +7,4 @@
         command: python
         args: ['-u', '-m', 'oneresearch']
         toolCallTimeoutMs: 180000
-        failOnStartupError: true
+        failOnStartupError: false  # 启动失败保留工具行并走重连预算（自愈），而非整行拒绝

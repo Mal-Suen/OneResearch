@@ -45,7 +45,27 @@ async def fetch_digest(urls: list[str], question: str = "") -> str:
     return await run_fetch_digest(urls, question=question)
 
 
+def _log_boot() -> None:
+    """启动自检：一行配置摘要写 stderr（MCP stdio 协议走 stdout，stderr 不干扰）。
+    宿主日志里能看到版本与关键配置，激活失败时可据此定位死因。"""
+    import sys
+
+    from . import __version__
+    try:
+        from .config import load_config
+        cfg = load_config()
+        print(f"[oneresearch] v{__version__} boot: "
+              f"llm={cfg['llm'].get('model') or 'off'} "
+              f"proxy={'on' if cfg['proxy'] else 'off'} "
+              f"engines={','.join(cfg['search']['engines'])}",
+              file=sys.stderr, flush=True)
+    except Exception as e:
+        print(f"[oneresearch] v{__version__} boot self-check failed: "
+              f"{type(e).__name__}: {e}", file=sys.stderr, flush=True)
+
+
 def main() -> None:
+    _log_boot()
     mcp.run()
 
 

@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
-"""诊断脚本（手动运行）：验证 python -m oneresearch 入口的 MCP stdio 握手。python tests/diag_module_entry.py"""
+"""诊断脚本（手动运行）：验证 python -m oneresearch 入口的 MCP stdio 握手＋启动自检行。python tests/diag_module_entry.py"""
 import json
 import subprocess
 import sys
+import threading
 import time
 
 try:
@@ -14,7 +15,14 @@ except Exception:
 def main() -> None:
     p = subprocess.Popen([sys.executable, "-u", "-m", "oneresearch"],
                          stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                         stderr=subprocess.DEVNULL, text=True, encoding="utf-8")
+                         stderr=subprocess.PIPE, text=True, encoding="utf-8")
+
+    def drain_err() -> None:
+        err = p.stderr.read()
+        if err.strip():
+            print("STDERR:", err.strip()[:300])
+
+    threading.Thread(target=drain_err, daemon=True).start()
 
     def send(obj: dict) -> None:
         p.stdin.write(json.dumps(obj) + "\n")
