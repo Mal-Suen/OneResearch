@@ -1,7 +1,9 @@
-# 上游提案二：profile 热重载 bug 报告（草稿，待审核）
+# 上游提案二：profile 热重载 bug 报告（已发布）
 
 - 目标仓库：deepseek-ai/deepseek-harness
-- 提交方式：待你审核通过后经 gh 提交（或你手动贴）
+- 发布渠道：GitHub Discussions（仓库关闭了 issues）→「General」分类（无专门 bug 分类，README 指明 bug 报告走 Discussions）
+- 发布链接：https://github.com/deepseek-ai/deepseek-harness/discussions/11321
+- 发布账号：Mal-Suen（gh CLI 认证账号，2026-10-28 经用户批准后发布）
 
 ## English draft
 
