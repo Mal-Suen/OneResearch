@@ -58,6 +58,19 @@
       },
       "versions": [
         {
+          "version": "1.1.1",
+          "publishTimestamp": 1793372000,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/Mal-Suen/OneResearch",
+            "commit": "45f4932c5195f4bb5f64eb51e3a5050bd8b148a0",
+            "path": "dsh-bundle"
+          },
+          "engines": {
+            "dsh": ">=0.2.1-rc.2"
+          }
+        },
+        {
           "version": "1.1.0",
           "publishTimestamp": 1792955265,
           "source": {
