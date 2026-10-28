@@ -15,6 +15,12 @@
           "en": "Research & Search",
           "zh": "调研与搜索"
         }
+      },
+      "security": {
+        "title": {
+          "en": "Security & Red Team",
+          "zh": "安全与红队"
+        }
       }
     },
     "labels": {},
@@ -58,6 +64,51 @@
             "type": "git",
             "url": "https://github.com/Mal-Suen/OneResearch",
             "commit": "9d772dae03c9d92bd633f46f3e6017f14b57220d",
+            "path": "dsh-bundle"
+          },
+          "engines": {
+            "dsh": ">=0.2.1-rc.2"
+          }
+        }
+      ]
+    },
+    {
+      "name": "dsh-redteam-kit",
+      "title": {
+        "en": "DSH Red Team Kit",
+        "zh": "DSH 红队工具箱"
+      },
+      "description": {
+        "en": "Red team MCP toolkit powered by Kali-WSL: 11 tools covering recon, enumeration, vulnerability analysis, exploitation and post-exploitation (dirsearch/nmap/nuclei/sqlmap/subfinder/httpx + Metasploit RPC), plus a PTES methodology preset and a vulnerable lab target. For authorized targets only.",
+        "zh": "Kali-WSL 驱动的红队 MCP 工具箱：11 个工具覆盖侦察、枚举、漏洞分析、利用与后渗透（dirsearch／nmap／nuclei／sqlmap／subfinder／httpx＋Metasploit RPC），附 PTES 方法论 preset 与漏洞靶机。仅限授权目标。"
+      },
+      "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCI+CiAgPHJlY3QgeD0iMiIgeT0iMiIgd2lkdGg9IjYwIiBoZWlnaHQ9IjYwIiByeD0iMTIiIGZpbGw9IiMxZTI5M2IiLz4KICA8Y2lyY2xlIGN4PSIzMiIgY3k9IjMyIiByPSIxNyIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjZjk3MzE2IiBzdHJva2Utd2lkdGg9IjMiLz4KICA8Y2lyY2xlIGN4PSIzMiIgY3k9IjMyIiByPSI5IiBmaWxsPSJub25lIiBzdHJva2U9IiNmOTczMTYiIHN0cm9rZS13aWR0aD0iMi41IiBvcGFjaXR5PSIwLjY1Ii8+CiAgPGNpcmNsZSBjeD0iMzIiIGN5PSIzMiIgcj0iMyIgZmlsbD0iI2Y5NzMxNiIvPgogIDxwYXRoIGQ9Ik0zMiA3djdNMzIgNTB2N003IDMyaDdNNTAgMzJoNyIgc3Ryb2tlPSIjOTRhM2I4IiBzdHJva2Utd2lkdGg9IjIuNSIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+Cjwvc3ZnPgo=",
+      "author": "Mal-Suen",
+      "homepage": "https://github.com/Mal-Suen/dsh-redteam-kit#readme",
+      "repository": {
+        "url": "https://github.com/Mal-Suen/dsh-redteam-kit",
+        "directory": "dsh-bundle"
+      },
+      "metadata": {
+        "category": "security",
+        "keywords": [
+          "mcp",
+          "security",
+          "pentest",
+          "kali",
+          "metasploit"
+        ],
+        "labels": [],
+        "sortKeys": {}
+      },
+      "versions": [
+        {
+          "version": "0.1.0",
+          "publishTimestamp": 1793151280,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/Mal-Suen/dsh-redteam-kit",
+            "commit": "23ce734b59cb8bf69c268cc0dba43c20ece00828",
             "path": "dsh-bundle"
           },
           "engines": {
