@@ -41,8 +41,40 @@ The diagnostic comes from `recompose()` in `@deepseek-ai/dsh-app-boot` (lib/inde
 
 Happy to provide logs or test a fix. Thanks!
 
-## 中文对照
+## 中文对照（全文翻译）
 
-标题：plugin_manager 写操作成功，但 profile 热重载始终报「profile reload requires the root Include entry」
+**标题：** plugin_manager 写操作成功，但 profile 热重载始终报「profile reload requires the root Include entry」
 
-正文要点：环境（dsh 0.2.1-rc.2、npm 全局安装、Windows 11、web profile）；复现步骤（任意写操作→pnpm 成功→application: failed 报同一诊断→重启才生效）；期望与实际；根因指针（dsh-app-boot 的 recompose() 里 bootstrapIncludes.get(ctx) 返回 undefined，疑似 web-profile 启动路径没注册根 Include 条目）；两个同机观察（失败操作残留 package.json.lock 死锁 14 小时才手动清除；受影响会话的 runtime context 把 implementation checkout 报成 profile 目录）；结尾表示可提供日志或协助验证修复。
+**正文：**
+
+**环境**
+
+- dsh 0.2.1-rc.2，npm 全局安装，Windows 11，web profile（`dsh web` 经反向代理发布，如相关）
+- 同一主机上两个不同会话复现（一个健康、一个降级）
+
+**复现步骤**
+
+1. 调用 `plugin_manager` 工具执行任意写操作，如对本地 tarball `install_bundle`，或 `set_plugin`／`set_bundle` 启停。
+2. pnpm 步骤成功（package.json 与 node_modules 正确更新）。
+3. 操作结果为 `application: "failed"`，诊断信息为：
+
+```
+dsh: profile reload requires the root Include entry
+```
+
+4. 改动只有完整重启 DSH 后才生效。
+
+**期望：** live profile 立即应用插件改动（按 plugin_manager 契约）。
+
+**实际：** 每个写操作都报同一诊断；重启前什么都不生效。
+
+**根因指针**
+
+该诊断出自 `@deepseek-ai/dsh-app-boot` 的 `recompose()`（lib/index.js，`bootstrapIncludes.get(ctx)` 检查返回 undefined）。看起来这个启动模式下根 Include 条目没有注册进 `bootstrapIncludes`，导致重载路径必然抛错。我尚未确定条目缺失的原因——可能与 web-profile 启动路径相关。
+
+**同一主机的两个相关观察**
+
+1. 失败操作会残留 `package.json.lock`。我们的案例里，一个含早已死亡 PID 的死锁阻塞了后续安装约 14 小时，直到手动删除。操作失败时锁文件没有被清理。
+2. 受影响会话中，runtime context 把 implementation checkout 报成 profile 目录本身而非 npm 安装目录——可能是同一启动模式的怪癖，一并报告以防相关。
+
+乐意提供日志或协助验证修复。谢谢！
