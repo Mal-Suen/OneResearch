@@ -35,7 +35,7 @@
 ## 安装
 
 ```shell
-python -m pip install oneresearch        # 从 PyPI（发布后）；或源码运行见下
+python -m pip install oneresearch        # PyPI 已发布；或源码运行见下
 # 国内网络可走镜像：
 python -m pip install -i https://mirrors.aliyun.com/pypi/simple/ oneresearch
 ```
